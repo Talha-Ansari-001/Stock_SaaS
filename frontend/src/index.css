@@ -1,0 +1,181 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Modern Heritage — Premium Aesthetic Foundation
+   Tailwind CSS v4 · Global Canvas Layer
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@import url("https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@300;400;500;600;700&display=swap");
+@import "tailwindcss";
+
+/* ── Source Tracking — force v4 to scan all JSX components ───────────────── */
+@custom-variant dark (&:where(.dark, .dark *));
+@source "../src";
+@source "./components";
+@source "./**/*.{js,jsx,ts,tsx}";
+
+/* ── Theme Tokens ────────────────────────────────────────────────────────── */
+@theme {
+  --font-mono: "Roboto Mono", ui-monospace, "Cascadia Code", "Fira Code", Consolas, "Courier New", monospace;
+
+  /* Map standard colors for utility generation */
+  --color-base: var(--theme-base);
+  --color-panel: var(--theme-panel);
+  --color-surface: var(--theme-surface);
+  --color-surface-hover: var(--theme-surface-hover);
+  --color-border-subtle: var(--theme-border-subtle);
+  --color-text-primary: var(--theme-text-primary);
+  --color-text-secondary: var(--theme-text-secondary);
+  --color-text-muted: var(--theme-text-muted);
+}
+
+/* ── Global Canvas ───────────────────────────────────────────────────────── */
+@layer base {
+  :root {
+    /* Light Mode Palette variables */
+    --theme-base: #f4f4f5;
+    --theme-panel: #ffffff;
+    --theme-surface: #f9f9fb;
+    --theme-surface-hover: #f1f1f4;
+    --theme-border-subtle: #e4e4e7;
+    --theme-text-primary: #09090b;
+    --theme-text-secondary: #27272a;
+    --theme-text-muted: #71717a;
+  }
+
+  .dark {
+    /* Premium Dark Workspace variables */
+    --theme-base: #09090b;
+    --theme-panel: #121214;
+    --theme-surface: #141416;
+    --theme-surface-hover: #1f1f23;
+    --theme-border-subtle: #1f1f23;
+    --theme-text-primary: #ffffff;
+    --theme-text-secondary: #e4e4e7;
+    --theme-text-muted: #a1a1aa;
+  }
+
+  /* 1. Smooth scrolling · Monospace primary · Strip browser defaults */
+  html {
+    scroll-behavior: smooth;
+    font-family: var(--font-mono);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Eliminate all standard browser default input treatments */
+  input,
+  textarea,
+  select,
+  button {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: none;
+    outline: none;
+    padding: 0;
+    margin: 0;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+  }
+
+  input:focus,
+  textarea:focus,
+  select:focus,
+  button:focus {
+    outline: none;
+    box-shadow: none;
+  }
+
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+
+  /* Remove search-input clear icons */
+  input[type="search"]::-webkit-search-decoration,
+  input[type="search"]::-webkit-search-cancel-button,
+  input[type="search"]::-webkit-search-results-button,
+  input[type="search"]::-webkit-search-results-decoration {
+    -webkit-appearance: none;
+  }
+
+  /* ── 2. Custom Scrollbars — Workspace ─────────────────────────────── */
+
+  /* Webkit (Chrome, Edge, Safari) */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--theme-panel);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--theme-surface-hover);
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--theme-text-muted);
+  }
+
+  ::-webkit-scrollbar-corner {
+    background: var(--theme-panel);
+  }
+
+  /* Firefox */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--theme-surface-hover) var(--theme-panel);
+  }
+}
+
+/* ── 3. Canvas Animation Keyframes ───────────────────────────────────────── */
+
+/* Fluid view-scaling fade-in transition */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Ambient tracking glow pulse */
+@keyframes pulse-glow {
+
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+
+  50% {
+    opacity: 0.8;
+  }
+}
+
+/* ── 4. Custom Utility Directives ─────────────────────────────────────────── */
+
+@utility animate-fade-in {
+  animation: fade-in 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+}
+
+@utility animate-pulse-glow {
+  animation: pulse-glow 2.5s ease-in-out infinite;
+}
+
+@utility custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--theme-surface-hover) var(--theme-panel);
+}

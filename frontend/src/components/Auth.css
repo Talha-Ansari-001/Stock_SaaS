@@ -1,0 +1,108 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   LOGIN GATE  –  Full-screen authentication wall
+   Self-contained dark-theme styles; no dependency on index.css variables.
+────────────────────────────────────────────────────────────────────────────── */
+
+.login-gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  width: 100%;
+  background: #0a0a0f;
+  background-image:
+    radial-gradient(ellipse at 15% 20%, rgba(99, 102, 241, 0.12) 0%, transparent 50%),
+    radial-gradient(ellipse at 85% 80%, rgba(139, 92, 246, 0.10) 0%, transparent 50%);
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 420px;
+  background: #0f0f17;
+  border: 1px solid #1e1e2e;
+  border-radius: 20px;
+  padding: 36px 32px;
+  box-sizing: border-box;
+  box-shadow:
+    0 25px 50px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(99, 102, 241, 0.08) inset;
+}
+
+/* Brand block */
+.login-brand {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.login-brand-icon {
+  font-size: 36px;
+  display: block;
+  margin-bottom: 12px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1;
+}
+
+.login-brand-name {
+  font-size: 24px;
+  font-weight: 800;
+  color: #f4f4f8;
+  letter-spacing: -0.03em;
+  margin: 0 0 6px;
+  line-height: 1;
+}
+
+.login-brand-sub {
+  font-size: 12px;
+  color: #3f3f5a;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  margin: 0;
+}
+
+/* Tab switcher */
+.login-tabs {
+  display: flex;
+  border-bottom: 1px solid #1e1e2e;
+  margin-bottom: 24px;
+}
+
+.login-tab {
+  flex: 1;
+  padding: 11px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #3f3f5a;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s ease;
+  position: relative;
+}
+
+.login-tab.active {
+  color: #a5b4fc;
+}
+
+.login-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #6366f1, #8b5cf6);
+  border-radius: 1px 1px 0 0;
+}
+
+/* Form */
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
