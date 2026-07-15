@@ -2,6 +2,7 @@ const express = require('express');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt'); // ⚡ Secure cryptographic hashing
 
 const app = express();
 app.use(express.json());
@@ -27,17 +28,21 @@ const pool = mysql.createPool({
 app.post('/api/auth/register', async (req, res) => {
   const { business_name, email, password } = req.body;
 
-  if (!business_name || !email) {
-    return res.status(400).json({ error: "Business name and Email are required" });
+  if (!business_name || !email || !password) {
+    return res.status(400).json({ error: "Business name, Email, and Password are required" });
   }
 
   try {
     const tenantId = 'tenant_' + Math.random().toString(36).substr(2, 9);
 
-    // 🌟 UPDATED: Now inserting the email column into your table safely
+    // ⚡ Securely hash the password before saving
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    // 🌟 FIXED: Stores the password signature safely into the DB columns
     await pool.execute(
-      'INSERT INTO tenants (id, business_name, email) VALUES (?, ?, ?)',
-      [tenantId, business_name, email]
+      'INSERT INTO tenants (id, business_name, email, password) VALUES (?, ?, ?, ?)',
+      [tenantId, business_name, email, hashedPassword]
     );
 
     const token = jwt.sign({ tenantId }, JWT_SECRET, { expiresIn: '24h' });
@@ -54,29 +59,32 @@ app.post('/api/auth/register', async (req, res) => {
  * 🔓 LOGIN EXISTING BUSINESS
  */
 app.post('/api/auth/login', async (req, res) => {
-  const { email, password } = req.body; // Expecting email from the frontend form
+  const { email, password } = req.body; 
 
-  if (!email) {
-    return res.status(400).json({ error: "Email address required" });
+  if (!email || !password) {
+    return res.status(400).json({ error: "Email address and Password are required" });
   }
 
   try {
-    // 1. Look up the tenant ID by matching the email instead of business name
-    // Note: Ensure your database 'tenants' table has an 'email' column.
-    let [rows] = await pool.execute('SELECT id FROM tenants WHERE email = ?', [email]);
-    let tenantId;
+    // 🌟 FIXED: Fetch both the id and the stored hashed password string
+    let [rows] = await pool.execute('SELECT id, password FROM tenants WHERE email = ?', [email]);
 
     if (rows.length === 0) {
       return res.status(401).json({ error: "No account found with this email address." });
-    } else {
-      tenantId = rows[0].id;
     }
 
-    // 2. Passcodes verify successfully -> issue session token
-    const token = jwt.sign({ tenantId }, JWT_SECRET, { expiresIn: '24h' }); //[cite: 1]
-    res.json({ token, message: "Welcome to Trader Workspace" }); //[cite: 1]
+    const tenant = rows[0];
+
+    // ⚡ FIXED: Verify that the raw password matches the database hash safely
+    const isPasswordValid = await bcrypt.compare(password, tenant.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ error: "Invalid password credentials. Terminal access denied." });
+    }
+
+    const token = jwt.sign({ tenantId: tenant.id }, JWT_SECRET, { expiresIn: '24h' });
+    res.json({ token, message: "Welcome to Trader Workspace" });
   } catch (err) {
-    res.status(500).json({ error: err.message }); //[cite: 1]
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -114,25 +122,23 @@ app.get('/api/products', async (req, res) => {
 });
 
 // INVENTORY: Add new product / replenish quantity
-// INVENTORY: Add new product / replenish quantity
 app.post('/api/products', async (req, res) => {
-  // 🌟 Destructure the two new incoming fields from the frontend payload
-  const { name, quantity, price, buying_price, supplier_name } = req.body;
+  const { name, quantity, price, buying_price, kg_per_unit, supplier_name } = req.body;
 
   if (!name || quantity === undefined || !price || !buying_price) {
     return res.status(400).json({ error: "Missing required fields" });
   }
 
   try {
-    // 🌟 INSERT values for buying_price and supplier_name into the query
     const [result] = await pool.execute(
       `INSERT INTO products 
-        (tenant_id, name, quantity, price, buying_price, supplier_name) 
-       VALUES (?, ?, ?, ?, ?, ?) 
+        (tenant_id, name, quantity, price, buying_price, kg_per_unit, supplier_name) 
+       VALUES (?, ?, ?, ?, ?, ?, ?) 
        ON DUPLICATE KEY UPDATE 
         quantity = quantity + VALUES(quantity),
         price = VALUES(price),
         buying_price = VALUES(buying_price),
+        kg_per_unit = VALUES(kg_per_unit),
         supplier_name = VALUES(supplier_name)`,
       [
         req.tenant_id,
@@ -140,6 +146,7 @@ app.post('/api/products', async (req, res) => {
         quantity,
         price,
         buying_price,
+        kg_per_unit || 1.00, // ⚡ Writes the conversion ratio multiplier
         supplier_name || null
       ]
     );
@@ -151,36 +158,60 @@ app.post('/api/products', async (req, res) => {
 
 // SALES: Register a sell entry & automatically deduct quantity safely
 app.post('/api/sales', async (req, res) => {
-  const { product_id, quantity_to_sell, buyer_name, buyer_contact, quantity_unit, payment_method } = req.body;
+  const { product_id, quantity_to_sell, quantity_unit, payment_method, buyer_name, buyer_contact } = req.body;
+
+  if (!product_id || !quantity_to_sell) {
+    return res.status(400).json({ error: "Product identifier and Quantity are required variables." });
+  }
+
   const connection = await pool.getConnection();
 
   try {
     await connection.beginTransaction();
 
     const [products] = await connection.execute(
-      'SELECT id, quantity, price FROM products WHERE id = ? AND tenant_id = ? FOR UPDATE',
+      'SELECT id, quantity, price, kg_per_unit FROM products WHERE id = ? AND tenant_id = ? FOR UPDATE',
       [product_id, req.tenant_id]
     );
 
     if (products.length === 0) throw new Error("Item not found in your inventory catalog");
     const product = products[0];
+    
+    const inputQty = parseFloat(quantity_to_sell);
+    const kgPerUnit = parseFloat(product.kg_per_unit) || 1.00;
+    
+    let unitsToDeduct = 0;
+    let total_revenue = 0;
 
-    if (product.quantity < parseInt(quantity_to_sell)) {
-      throw new Error(`Insufficient Stock level! Only ${product.quantity} items left.`);
+    // ⚡ FRACTIONAL WEIGHT CONVERSION ENGINE
+    if (quantity_unit === 'Kg') {
+      // If selling in Kg, calculate fraction of bag (e.g. selling 2kg from a 20kg bag = 0.10 bags)
+      unitsToDeduct = inputQty / kgPerUnit;
+      // Revenue calculation per fractional weight sold
+      total_revenue = (parseFloat(product.price) / kgPerUnit) * inputQty;
+    } else {
+      // If selling in direct full "Bags" / Units
+      unitsToDeduct = inputQty;
+      total_revenue = parseFloat(product.price) * inputQty;
     }
 
+    if (product.quantity < unitsToDeduct) {
+      const availableKg = (product.quantity * kgPerUnit).toFixed(1);
+      throw new Error(`Insufficient Stock level! Only ${Number(product.quantity).toFixed(2)} Bags (${availableKg} Kg) left.`);
+    }
+
+    // Deduct stock balance (supports decimal values cleanly!)
     await connection.execute(
-      'UPDATE products SET quantity = quantity - ? WHERE id = ?',
-      [quantity_to_sell, product_id]
+      'UPDATE products SET quantity = quantity - ? WHERE id = ? AND tenant_id = ?',
+      [unitsToDeduct, product_id, req.tenant_id]
     );
 
-    const total_revenue = product.price * parseInt(quantity_to_sell);
     await connection.execute(
       'INSERT INTO sales (tenant_id, product_id, quantity_sold, total_revenue, buyer_name, buyer_contact, quantity_unit, payment_method) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       [
         req.tenant_id,
         product_id,
-        quantity_to_sell,
+        inputQty, // Records the physical units quantity entered (e.g., 2.00)
         total_revenue,
         buyer_name || null,
         buyer_contact || null,
@@ -203,7 +234,8 @@ app.post('/api/sales', async (req, res) => {
 app.get('/api/sales/history', async (req, res) => {
   try {
     const query = `
-      SELECT s.id, p.name AS product_name, s.quantity_sold, s.total_revenue, s.sold_at 
+      SELECT s.id, p.name AS product_name, s.quantity_sold, s.total_revenue,
+             s.buyer_name, s.buyer_contact, s.quantity_unit, s.payment_method, s.sold_at 
       FROM sales s
       JOIN products p ON s.product_id = p.id
       WHERE s.tenant_id = ?

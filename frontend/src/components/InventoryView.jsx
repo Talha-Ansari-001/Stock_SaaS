@@ -1,10 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 
-export default function InventoryView({ token }) {
-  const [products, setProducts] = useState([]);
-  const [form, setForm] = useState({ name: '', quantity: '', price: '', buying_price: '', supplier_name: '' });
+export default function InventoryView({ token, products, isLoaded, refreshInventory }) {
+  const [form, setForm] = useState({ 
+    name: '', 
+    quantity: '', 
+    price: '', 
+    buying_price: '', 
+    kg_per_unit: '20', // ⚡ Defaulting to standard 20 Kg bags
+    supplier_name: '' 
+  });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isLoaded, setIsLoaded] = useState(false);
   
   // Modal tracking state structures
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -14,20 +19,6 @@ export default function InventoryView({ token }) {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${token}`,
   };
-
-  const loadInventory = async () => {
-    try {
-      const res = await fetch('http://localhost:5000/api/products', { headers });
-      const data = await res.json();
-      setProducts(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.error('Inventory sync failure:', err);
-    } finally {
-      setIsLoaded(true);
-    }
-  };
-
-  useEffect(() => { loadInventory(); }, []);
 
   const handleAdd = async (e) => {
     e.preventDefault();
@@ -41,11 +32,13 @@ export default function InventoryView({ token }) {
           quantity: parseInt(form.quantity, 10),
           price: parseFloat(form.price),
           buying_price: parseFloat(form.buying_price),
+          kg_per_unit: parseFloat(form.kg_per_unit) || 1.00, // ⚡ Pass conversions down cleanly
           supplier_name: form.supplier_name || null
         }),
       });
-      setForm({ name: '', quantity: '', price: '', buying_price: '', supplier_name: '' });
-      await loadInventory();
+      setForm({ name: '', quantity: '', price: '', buying_price: '', kg_per_unit: '20', supplier_name: '' });
+      // Silent background cache sync update
+      if (refreshInventory) await refreshInventory();
     } catch (err) {
       console.error('Provision commit failure:', err);
     } finally {
@@ -59,47 +52,52 @@ export default function InventoryView({ token }) {
     try {
       const res = await fetch(`http://localhost:5000/api/products/${deleteTarget.id}`, {
         method: 'DELETE',
-        headers
+        headers,
       });
       if (res.ok) {
-        await loadInventory();
+        setDeleteTarget(null);
+        if (refreshInventory) await refreshInventory();
       }
     } catch (err) {
-      console.error('Purge transaction broken:', err);
+      console.error('Purge transaction failure:', err);
     } finally {
       setIsDeleting(false);
-      setDeleteTarget(null);
     }
   };
 
   return (
-    <div className={`space-y-10 transition-all duration-500 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}>
-      <header className="space-y-1 text-left">
-        <h1 className="text-2xl font-semibold tracking-tight text-text-primary font-sans">
-          Inventory Assets
-        </h1>
-        <p className="text-sm tracking-tight text-text-muted font-mono lowercase">
-          terminal / active_manifest
-        </p>
+    <div className="space-y-6 md:space-y-10 animate-fade-in">
+      {/* Header and overview stat summary */}
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border-subtle/40 pb-6">
+        <div className="space-y-1 text-left">
+          <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-text-primary font-sans">
+            Inventory Registry
+          </h1>
+          <p className="text-xs md:text-sm tracking-tight text-text-muted font-mono lowercase">
+            catalogue_management / batch_metrics
+          </p>
+        </div>
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-        {/* LEFT PANE - Control Form */}
-        <form 
-          onSubmit={handleAdd} 
-          className="bg-panel border border-border-subtle rounded-xl p-8 space-y-6 shadow-md transition-colors duration-300"
+      {/* Grid Layout splits forms and listings */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8 items-start">
+        
+        {/* ADD INVENTORY FORM PANELS */}
+        <form
+          onSubmit={handleAdd}
+          className="bg-panel border border-border-subtle rounded-xl p-5 md:p-6 space-y-5 shadow-xs text-left"
         >
-          <div className="space-y-1 text-left">
-            <h2 className="text-base font-medium tracking-tight text-text-primary font-sans">Provision Stock</h2>
-          </div>
+          <h2 className="text-sm font-medium tracking-tight text-text-primary font-sans mb-4">
+            Provision New Batch
+          </h2>
 
           <div className="space-y-4">
-            {/* Product Title */}
+            {/* Product Identifier Name */}
             <div className="space-y-1.5">
-              <label className="text-xs tracking-tight text-text-muted font-sans block">Product Identifier</label>
+              <label className="text-xs tracking-tight text-text-muted font-sans block">Product Name / Label</label>
               <input
                 type="text"
-                placeholder="Name (e.g. Cotton)"
+                placeholder="e.g. Sand - 20kg Bag"
                 required
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -107,41 +105,58 @@ export default function InventoryView({ token }) {
               />
             </div>
 
-            {/* Supplier Meta */}
+            {/* Supplier Origin */}
             <div className="space-y-1.5">
-              <label className="text-xs tracking-tight text-text-muted font-sans block">Supplier Name</label>
+              <label className="text-xs tracking-tight text-text-muted font-sans block">Supplier Entity Name</label>
               <input
                 type="text"
-                placeholder="Supplier (e.g. ABC Textiles)"
+                placeholder="e.g. Trader A"
                 value={form.supplier_name}
                 onChange={(e) => setForm({ ...form, supplier_name: e.target.value })}
                 className="w-full bg-surface border border-border-subtle focus:border-zinc-500 dark:focus:border-zinc-400 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
               />
             </div>
 
-            {/* Total Units */}
-            <div className="space-y-1.5">
-              <label className="text-xs tracking-tight text-text-muted font-sans block">Quantity</label>
-              <input
-                type="number"
-                placeholder="Units"
-                required
-                min="1"
-                value={form.quantity}
-                onChange={(e) => setForm({ ...form, quantity: e.target.value })}
-                className="w-full bg-surface border border-border-subtle focus:border-zinc-500 dark:focus:border-zinc-400 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
-              />
-            </div>
-
-            {/* Pricing Dual Grid Split Row */}
+            {/* Units Quantity & Conversion Ratio */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <label className="text-xs tracking-tight text-text-muted font-sans block">Buying Price</label>
+                <label className="text-xs tracking-tight text-text-muted font-sans block">Bags Quantity</label>
                 <input
                   type="number"
-                  step="0.01"
-                  placeholder="Cost USD"
+                  placeholder="e.g. 10"
                   required
+                  min="0"
+                  value={form.quantity}
+                  onChange={(e) => setForm({ ...form, quantity: e.target.value })}
+                  className="w-full bg-surface border border-border-subtle focus:border-zinc-500 dark:focus:border-zinc-400 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs tracking-tight text-text-muted font-sans block">Kg Per Unit</label>
+                <input
+                  type="number"
+                  placeholder="e.g. 20"
+                  required
+                  min="1"
+                  step="0.01"
+                  value={form.kg_per_unit}
+                  onChange={(e) => setForm({ ...form, kg_per_unit: e.target.value })}
+                  className="w-full bg-surface border border-border-subtle focus:border-zinc-500 dark:focus:border-zinc-400 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
+                />
+              </div>
+            </div>
+
+            {/* Financial valuations (Selling Price & Cost Buying Rate) */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs tracking-tight text-text-muted font-sans block">Cost (Buy Price)</label>
+                <input
+                  type="number"
+                  placeholder="Cost per unit"
+                  required
+                  min="0"
+                  step="0.01"
                   value={form.buying_price}
                   onChange={(e) => setForm({ ...form, buying_price: e.target.value })}
                   className="w-full bg-surface border border-border-subtle focus:border-zinc-500 dark:focus:border-zinc-400 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
@@ -149,12 +164,13 @@ export default function InventoryView({ token }) {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs tracking-tight text-text-muted font-sans block">Base Price (Sell)</label>
+                <label className="text-xs tracking-tight text-text-muted font-sans block">Selling Price</label>
                 <input
                   type="number"
-                  step="0.01"
-                  placeholder="Sell USD"
+                  placeholder="Retail price"
                   required
+                  min="0"
+                  step="0.01"
                   value={form.price}
                   onChange={(e) => setForm({ ...form, price: e.target.value })}
                   className="w-full bg-surface border border-border-subtle focus:border-zinc-500 dark:focus:border-zinc-400 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
@@ -166,82 +182,91 @@ export default function InventoryView({ token }) {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full bg-text-primary text-base font-medium text-sm tracking-tight rounded-lg p-3 transition-all duration-200 hover:opacity-90 active:scale-95 disabled:opacity-50"
+            className="w-full bg-text-primary text-panel font-medium text-sm tracking-tight rounded-lg p-3 transition-all duration-200 hover:opacity-90 active:scale-95 disabled:opacity-50 mt-4 cursor-pointer"
           >
-            {isSubmitting ? 'Committing...' : 'Add to Inventory'}
+            {isSubmitting ? 'Registering...' : 'Provision Item'}
           </button>
         </form>
 
-        {/* RIGHT PANE - Asset Terminal Grid */}
-        <div className="lg:col-span-2 bg-panel border border-border-subtle rounded-xl p-8 flex flex-col h-[600px] shadow-md transition-colors duration-300">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-base font-medium tracking-tight text-text-primary font-sans">Warehouse Standings</h2>
-            <span className="text-xs tracking-tight text-text-muted font-mono">rows: {products.length}</span>
-          </div>
-
-          <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-            {products.length === 0 ? (
-              <div className="text-center py-10 text-text-muted text-sm font-sans tracking-tight">No products found</div>
-            ) : (
-              products.map((p) => (
-                <div
-                  key={p.id}
-                  className="group flex items-center justify-between p-4 bg-surface border border-transparent hover:border-border-subtle rounded-lg transition-all duration-300 relative overflow-hidden"
-                >
-                  <div className="flex items-center gap-4 min-w-0">
-                    <span className="text-xs font-mono text-text-muted">{(p.id || 0).toString().padStart(4, '0')}</span>
-                    <div className="flex flex-col min-w-0 text-left">
-                      <span className="text-sm font-medium text-text-primary tracking-tight truncate">{p.name}</span>
-                      {p.supplier_name && <span className="text-[10px] text-text-muted font-mono truncate">via {p.supplier_name}</span>}
-                    </div>
-                  </div>
-                  
-                  {/* Performance Metric Row Columns */}
-                  <div className="flex items-center gap-6 flex-shrink-0 transition-transform duration-300 group-hover:-translate-x-8">
-                    <div className="text-right">
-                      <span className="text-sm font-mono text-[#10b981]">{(p.quantity ?? 0).toLocaleString()}</span>
-                      <span className="text-[10px] text-text-muted font-sans tracking-tight block">stock</span>
-                    </div>
+        {/* INVENTORY REGISTRY DISPLAY TABULAR SYSTEM */}
+        <div className="lg:col-span-2 bg-panel border border-border-subtle rounded-xl shadow-xs overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-left">
+              <thead>
+                <tr className="border-b border-border-subtle/60 bg-surface">
+                  <th className="px-4 py-3.5 text-xs font-mono font-medium text-text-muted uppercase tracking-wider">Asset Item</th>
+                  <th className="px-4 py-3.5 text-xs font-mono font-medium text-text-muted uppercase tracking-wider">Unit Metrics</th>
+                  <th className="px-4 py-3.5 text-xs font-mono font-medium text-text-muted uppercase tracking-wider">Buy (Cost)</th>
+                  <th className="px-4 py-3.5 text-xs font-mono font-medium text-text-muted uppercase tracking-wider">Sell Price</th>
+                  <th className="px-4 py-3.5 text-xs font-mono font-medium text-text-muted uppercase tracking-wider">Total Weight</th>
+                  <th className="px-4 py-3.5 text-xs font-mono font-medium text-text-muted uppercase tracking-wider text-right">Delete</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border-subtle/30 font-mono text-sm">
+                {!isLoaded ? (
+                  <tr>
+                    <td colSpan="6" className="px-4 py-12 text-center text-text-muted font-sans text-xs">
+                      Synchronizing local cache matrix...
+                    </td>
+                  </tr>
+                ) : products.length === 0 ? (
+                  <tr>
+                    <td colSpan="6" className="px-4 py-12 text-center text-text-muted font-sans text-xs">
+                      No active assets deployed in your organization context.
+                    </td>
+                  </tr>
+                ) : (
+                  products.map((p) => {
+                    const quantity = p.quantity !== undefined ? p.quantity : p.stock || 0;
+                    const kgPerUnit = parseFloat(p.kg_per_unit) || 1.00;
+                    const totalWeight = (quantity * kgPerUnit).toFixed(2);
                     
-                    <div className="text-right w-14">
-                      <span className="text-sm font-mono text-text-secondary">${p.buying_price ? parseFloat(p.buying_price).toFixed(2) : '0.00'}</span>
-                      <span className="text-[10px] text-text-muted font-sans tracking-tight block">cost</span>
-                    </div>
-
-                    <div className="text-right w-14">
-                      <span className="text-sm font-mono text-text-primary">${p.price ? parseFloat(p.price).toFixed(2) : '0.00'}</span>
-                      <span className="text-[10px] text-text-muted font-sans tracking-tight block">price</span>
-                    </div>
-                  </div>
-
-                  {/* Absolute Inline Deletion Trigger Control */}
-                  <button
-                    onClick={() => setDeleteTarget(p)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-2 text-text-muted hover:text-red-500 dark:hover:text-red-400 rounded-md hover:bg-red-500/10 transition-all duration-200 cursor-pointer"
-                    title="Purge row entry"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
-                </div>
-              ))
-            )}
+                    return (
+                      <tr key={p.id} className="hover:bg-surface/30 transition-colors duration-150">
+                        <td className="px-4 py-4">
+                          <div className="font-sans font-semibold text-text-primary text-sm">{p.name}</div>
+                          {p.supplier_name && (
+                            <div className="text-[10px] text-text-muted mt-0.5">supplier: {p.supplier_name}</div>
+                          )}
+                        </td>
+                        <td className="px-4 py-4 text-text-primary">
+                          <span className="font-semibold">{Number(quantity).toFixed(2)}</span>
+                          <span className="text-[10px] text-text-muted ml-1">Bags ({kgPerUnit} Kg/ea)</span>
+                        </td>
+                        <td className="px-4 py-4 text-text-secondary">₹{parseFloat(p.buying_price || 0).toLocaleString()}</td>
+                        <td className="px-4 py-4 text-text-primary font-semibold">₹{parseFloat(p.price || 0).toLocaleString()}</td>
+                        <td className="px-4 py-4 text-emerald-500 font-semibold">{totalWeight} Kg</td>
+                        <td className="px-4 py-4 text-right">
+                          <button
+                            onClick={() => setDeleteTarget(p)}
+                            className="inline-flex items-center justify-center p-1.5 text-text-muted hover:text-red-500 rounded-md hover:bg-red-500/10 transition-all cursor-pointer"
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
+
       </div>
 
-      {/* ── LUXURY CONFIRMATION DIALOG MODAL OVERLAY ── */}
+      {/* CONFIRMATION MODAL OVERLAY */}
       {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
           <div className="bg-panel border border-red-500/20 rounded-xl p-6 max-w-sm w-full space-y-6 shadow-xl text-left">
             <div className="space-y-2">
               <h3 className="text-base font-medium tracking-tight text-text-primary font-sans">Confirm Item Purge</h3>
               <p className="text-sm text-text-secondary font-sans">
-                Are you sure you want to permanently delete <span className="text-text-primary font-mono bg-surface px-1.5 py-0.5 rounded border border-border-subtle">{deleteTarget.name}</span>? This action historical balances cannot be reversed.
+                Are you sure you want to permanently delete <span className="text-text-primary font-mono bg-surface px-1.5 py-0.5 rounded border border-border-subtle">{deleteTarget.name}</span>? This action cannot be reversed.
               </p>
             </div>
-            
             <div className="flex items-center gap-3">
               <button
                 disabled={isDeleting}
