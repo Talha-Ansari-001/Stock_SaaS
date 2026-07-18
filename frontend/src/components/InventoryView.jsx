@@ -29,7 +29,7 @@ export default function InventoryView({ token, products, isLoaded, refreshInvent
     setFormError('');
     setFormSuccess('');
     try {
-      const res = await fetch('http://localhost:5000/api/products', {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/products`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -64,7 +64,7 @@ export default function InventoryView({ token, products, isLoaded, refreshInvent
     setIsDeleting(true);
     setDeleteError('');
     try {
-      const res = await fetch(`http://localhost:5000/api/products/${deleteTarget.id}`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/products/${deleteTarget.id}`, {
         method: 'DELETE',
         headers,
       });

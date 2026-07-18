@@ -24,7 +24,7 @@ export default function ReportsView({ salesHistory = [], isLoaded = false, refre
     if (!window.confirm("Confirm clearing out the remaining balance for this client?")) return;
 
     try {
-      const res = await fetch(`http://localhost:5000/api/sales/${saleId}/settle`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/sales/${saleId}/settle`, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -43,19 +43,27 @@ export default function ReportsView({ salesHistory = [], isLoaded = false, refre
   };
 
   // --- ACTION ENGINE: EXECUTE QUANTITY RETURN ---
-  const handleExecuteReturn = async (log) => {
+  const handleExecuteReturn = async (log, maxQty, refundValuation) => {
     const qty = parseFloat(returnQty);
-    if (!qty || qty <= 0) {
-      alert("Please enter a valid return quantity.");
+    if (!qty || qty <= 0 || qty > maxQty) {
+      alert(`Please enter a valid return quantity up to ${maxQty.toFixed(2)}.`);
       return;
     }
 
-    const messagePrompt = `Confirm returning ${qty} ${returnUnit}? This will adjust inventory and recalculate financials.`;
+    let messagePrompt = `Confirm returning ${qty} ${returnUnit}? This will adjust inventory and recalculate financials.`;
+    const isCashRefund = refundCash || log.payment_method?.toLowerCase() === 'cash';
+    
+    if (isCashRefund) {
+      messagePrompt = `Confirm returning ${qty} ${returnUnit}? This requires a physical CASH refund of ₹${refundValuation.toFixed(2)} to the customer.`;
+    } else {
+      messagePrompt = `Confirm returning ${qty} ${returnUnit}? This will automatically shrink the client's outstanding credit debt by ₹${refundValuation.toFixed(2)}.`;
+    }
+
     if (!window.confirm(messagePrompt)) return;
 
     setIsProcessingReturn(true);
     try {
-      const res = await fetch(`http://localhost:5000/api/sales/${log.id}/return`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/sales/${log.id}/return`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -356,7 +364,7 @@ export default function ReportsView({ salesHistory = [], isLoaded = false, refre
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleExecuteReturn(log)}
+                                  onClick={() => handleExecuteReturn(log, maxQtyInSelectedUnit, estValuation)}
                                   disabled={isProcessingReturn || !returnQty || parseFloat(returnQty) <= 0 || parseFloat(returnQty) > maxQtyInSelectedUnit}
                                   className="flex-1 bg-red-500 hover:bg-red-600 disabled:opacity-40 text-white font-mono text-xs py-2 rounded-lg transition-all cursor-pointer"
                                 >

@@ -9,7 +9,22 @@ require('dotenv').config();
 
 const app = express();
 app.use(express.json());
-app.use(cors());
+
+const allowedOrigins = process.env.FRONTEND_URL 
+  ? [process.env.FRONTEND_URL, 'http://localhost:5173', 'http://localhost:3000'] 
+  : '*';
+
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins === '*' || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
 
 const JWT_SECRET = process.env.JWT_SECRET || 'TRADER_OS_SECRET_KEY';
 
@@ -19,12 +34,31 @@ const pool = mysql.createPool({
   port: Number(process.env.DB_PORT) || 3306,
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || 'root',
-  database: process.env.DB_NAME || 'simple_saas_inventory',
+  database: process.env.DB_DATABASE || process.env.DB_NAME || 'simple_saas_inventory',
   connectionLimit: 10,
   ssl: process.env.DB_SSL === 'true' ? {
     rejectUnauthorized: false // Required for managed cloud providers like Aiven
   } : false
 });
+
+// Cleanly handle database pool disconnects or SSL handshake rejections without crashing the server
+if (typeof pool.on === 'function') {
+  pool.on('error', (err) => {
+    console.error('Unexpected error on idle database client', err);
+    if (err.code === 'PROTOCOL_CONNECTION_LOST') {
+      console.error('Database connection was closed.');
+    } else if (err.code === 'ER_CON_COUNT_ERROR') {
+      console.error('Database has too many connections.');
+    } else if (err.code === 'ECONNREFUSED') {
+      console.error('Database connection was refused.');
+    }
+  });
+} else if (pool.pool && typeof pool.pool.on === 'function') {
+  // Catch for some mysql2 wrapper objects
+  pool.pool.on('error', (err) => {
+    console.error('Unexpected error on idle database client', err);
+  });
+}
 
 // ─────────────────────────────────────────────
 // UNPROTECTED ROUTES: LOGIN / REGISTER (No Token Needed)

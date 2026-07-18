@@ -56,7 +56,7 @@ export default function SalesView({ token, products, isLoaded, refreshInventory 
     }
 
     try {
-      const res = await fetch('http://localhost:5000/api/sales', {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/sales`, {
         method: 'POST',
         headers,
         body: JSON.stringify({

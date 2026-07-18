@@ -15,8 +15,8 @@ export default function LoginGate({ onLogin }) {
 
     // Dynamic endpoint target selection
     const endpoint = isRegisterMode 
-      ? 'http://localhost:5000/api/auth/register' 
-      : 'http://localhost:5000/api/auth/login';
+      ? `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/auth/register` 
+      : `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/auth/login`;
 
     // Dynamic payload configuration
     const payload = isRegisterMode 

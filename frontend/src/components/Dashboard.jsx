@@ -20,13 +20,13 @@ export default function TraderDashboard({ token }) {
       setLoading(true);
       setError(null);
 
-      const prodRes = await fetch('http://localhost:5000/api/products', { headers });
+      const prodRes = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/products`, { headers });
       if (!prodRes.ok) throw new Error(`Products server status error: ${prodRes.status}`);
       const prodData = await prodRes.json();
       // Safeguard: Ensure data is strictly parsed as an array
       setProducts(Array.isArray(prodData) ? prodData : []);
 
-      const salesRes = await fetch('http://localhost:5000/api/sales/history', { headers });
+      const salesRes = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/sales/history`, { headers });
       if (!salesRes.ok) throw new Error(`Sales server status error: ${salesRes.status}`);
       const salesData = await salesRes.json();
       // Safeguard: Ensure data is strictly parsed as an array
@@ -51,7 +51,7 @@ export default function TraderDashboard({ token }) {
   const handleAddProduct = async (e) => {
     e.preventDefault();
     try {
-      await fetch('http://localhost:5000/api/products', {
+      await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/products`, {
         method: 'POST',
         headers,
         body: JSON.stringify(newProduct)
@@ -66,7 +66,7 @@ export default function TraderDashboard({ token }) {
   const handleLogSale = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('http://localhost:5000/api/sales', {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/sales`, {
         method: 'POST',
         headers,
         body: JSON.stringify(newSale)

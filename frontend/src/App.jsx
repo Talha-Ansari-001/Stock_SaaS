@@ -32,7 +32,7 @@ export default function App() {
   const loadProducts = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch('http://localhost:5000/api/products', { headers });
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/products`, { headers });
       const data = await res.json();
       setProducts(Array.isArray(data) ? data : []);
     } catch (err) {
@@ -45,7 +45,7 @@ export default function App() {
   const loadSalesHistory = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch('http://localhost:5000/api/sales/history', { headers });
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/sales/history`, { headers });
       const data = await res.json();
       setSalesHistory(Array.isArray(data) ? data : []);
     } catch (err) {
