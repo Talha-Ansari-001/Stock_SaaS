@@ -59,7 +59,7 @@ app.post('/api/auth/register', async (req, res) => {
  * 🔓 LOGIN EXISTING BUSINESS
  */
 app.post('/api/auth/login', async (req, res) => {
-  const { email, password } = req.body; 
+  const { email, password } = req.body;
 
   if (!email || !password) {
     return res.status(400).json({ error: "Email address and Password are required" });
@@ -158,7 +158,7 @@ app.post('/api/products', async (req, res) => {
 
 // SALES: Register a sell entry & automatically deduct quantity safely
 app.post('/api/sales', async (req, res) => {
-  const { product_id, quantity_to_sell, quantity_unit, payment_method, buyer_name, buyer_contact } = req.body;
+  const { product_id, quantity_to_sell, quantity_unit, payment_method, buyer_name, buyer_contact, amount_paid } = req.body;
 
   if (!product_id || !quantity_to_sell) {
     return res.status(400).json({ error: "Product identifier and Quantity are required variables." });
@@ -176,21 +176,18 @@ app.post('/api/sales', async (req, res) => {
 
     if (products.length === 0) throw new Error("Item not found in your inventory catalog");
     const product = products[0];
-    
+
     const inputQty = parseFloat(quantity_to_sell);
     const kgPerUnit = parseFloat(product.kg_per_unit) || 1.00;
-    
+
     let unitsToDeduct = 0;
     let total_revenue = 0;
 
     // ⚡ FRACTIONAL WEIGHT CONVERSION ENGINE
     if (quantity_unit === 'Kg') {
-      // If selling in Kg, calculate fraction of bag (e.g. selling 2kg from a 20kg bag = 0.10 bags)
       unitsToDeduct = inputQty / kgPerUnit;
-      // Revenue calculation per fractional weight sold
       total_revenue = (parseFloat(product.price) / kgPerUnit) * inputQty;
     } else {
-      // If selling in direct full "Bags" / Units
       unitsToDeduct = inputQty;
       total_revenue = parseFloat(product.price) * inputQty;
     }
@@ -206,13 +203,16 @@ app.post('/api/sales', async (req, res) => {
       [unitsToDeduct, product_id, req.tenant_id]
     );
 
+    const finalAmountPaid = amount_paid !== undefined && amount_paid !== null ? parseFloat(amount_paid) : total_revenue;
+
     await connection.execute(
-      'INSERT INTO sales (tenant_id, product_id, quantity_sold, total_revenue, buyer_name, buyer_contact, quantity_unit, payment_method) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO sales (tenant_id, product_id, quantity_sold, total_revenue, amount_paid, buyer_name, buyer_contact, quantity_unit, payment_method) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         req.tenant_id,
         product_id,
-        inputQty, // Records the physical units quantity entered (e.g., 2.00)
+        inputQty, 
         total_revenue,
+        finalAmountPaid,
         buyer_name || null,
         buyer_contact || null,
         quantity_unit || 'Kg',
@@ -234,8 +234,8 @@ app.post('/api/sales', async (req, res) => {
 app.get('/api/sales/history', async (req, res) => {
   try {
     const query = `
-      SELECT s.id, p.name AS product_name, s.quantity_sold, s.total_revenue,
-             s.buyer_name, s.buyer_contact, s.quantity_unit, s.payment_method, s.sold_at 
+      SELECT s.id, p.name AS product_name, s.product_id, s.quantity_sold, s.total_revenue, s.amount_paid,
+             s.quantity_returned, s.amount_refunded, p.kg_per_unit, s.buyer_name, s.buyer_contact, s.quantity_unit, s.payment_method, s.sold_at 
       FROM sales s
       JOIN products p ON s.product_id = p.id
       WHERE s.tenant_id = ?
@@ -265,6 +265,193 @@ app.delete('/api/products/:id', async (req, res) => {
     res.json({ success: true, message: "Inventory record permanently purged." });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// SALES: Update a partial/credit transaction to fully paid
+app.put('/api/sales/:id/complete', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const [rows] = await pool.execute('SELECT total_revenue FROM sales WHERE id = ? AND tenant_id = ?', [id, req.tenant_id]);
+    if (rows.length === 0) return res.status(404).json({ error: "Transaction record not found." });
+
+    const total = rows[0].total_revenue;
+
+    const [result] = await pool.execute(
+      'UPDATE sales SET amount_paid = ?, payment_method = "Cash" WHERE id = ? AND tenant_id = ?',
+      [total, id, req.tenant_id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: "Transaction record not found." });
+    }
+
+    res.json({ success: true, message: "Ledger entry updated to fully completed." });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// SALES: Clear outstanding debt balance
+app.patch('/api/sales/:id/settle', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [rows] = await pool.execute('SELECT total_revenue FROM sales WHERE id = ? AND tenant_id = ?', [id, req.tenant_id]);
+    if (rows.length === 0) return res.status(404).json({ error: "Record not found" });
+
+    const total = rows[0].total_revenue;
+
+    await pool.execute(
+      'UPDATE sales SET amount_paid = ?, payment_method = "Cash (Settled)" WHERE id = ? AND tenant_id = ?',
+      [total, id, req.tenant_id]
+    );
+
+    res.json({ success: true, message: "Balance settled successfully" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 🔄 SALES: Process Partial Item Returns / Refunds
+ * Computes weight fractions dynamically, refunds cash, or automatically scales down credit liabilities.
+ */
+app.post('/api/sales/:id/return', async (req, res) => {
+  const { id } = req.params;
+  const { returned_quantity, refund_cash, quantity_unit } = req.body;
+
+  if (!returned_quantity || parseFloat(returned_quantity) <= 0) {
+    return res.status(400).json({ error: "A valid return volume metric must be declared." });
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // 1. Fetch sale data under isolated update locks
+    const [sales] = await connection.execute(
+      'SELECT product_id, quantity_sold, total_revenue, amount_paid, quantity_returned, amount_refunded, quantity_unit, payment_method FROM sales WHERE id = ? AND tenant_id = ? FOR UPDATE', 
+      [id, req.tenant_id]
+    );
+    if (sales.length === 0) throw new Error("Transaction record not found within your tenant ecosystem.");
+    
+    const sale = sales[0];
+    const originalQty = parseFloat(sale.quantity_sold);
+    const returnedQtySoFar = parseFloat(sale.quantity_returned || 0);
+    const originalRevenue = parseFloat(sale.total_revenue);
+    const amountPaid = parseFloat(sale.amount_paid);
+    const amountRefundedSoFar = parseFloat(sale.amount_refunded || 0);
+    
+    // 2. Fetch specific product data to correctly unpack packaging metrics
+    const [products] = await connection.execute(
+      'SELECT id, quantity, kg_per_unit FROM products WHERE id = ? AND tenant_id = ? FOR UPDATE',
+      [sale.product_id, req.tenant_id]
+    );
+    if (products.length === 0) throw new Error("Parent catalog item structure no longer exists.");
+    
+    const product = products[0];
+    const kgPerUnit = parseFloat(product.kg_per_unit) || 1.00;
+
+    // Convert input quantity to the original sale's unit
+    const inputQty = parseFloat(returned_quantity);
+    let qtyToCompare = 0; // return qty in sale's unit
+    let stockToRestore = 0; // return qty in Bags
+
+    if (sale.quantity_unit === 'Kg') {
+      if (quantity_unit === 'Kg') {
+        qtyToCompare = inputQty;
+        stockToRestore = inputQty / kgPerUnit;
+      } else {
+        qtyToCompare = inputQty * kgPerUnit;
+        stockToRestore = inputQty;
+      }
+    } else { // sale unit is Bags
+      if (quantity_unit === 'Bags') {
+        qtyToCompare = inputQty;
+        stockToRestore = inputQty;
+      } else {
+        qtyToCompare = inputQty / kgPerUnit;
+        stockToRestore = inputQty / kgPerUnit;
+      }
+    }
+
+    const remainingReturnable = originalQty - returnedQtySoFar;
+    if (qtyToCompare > remainingReturnable) {
+      throw new Error(`Invalid request. Max returnable volume is ${remainingReturnable.toFixed(2)} ${sale.quantity_unit}`);
+    }
+
+    // 3. Reverse inventory volume weights securely
+    await connection.execute(
+      'UPDATE products SET quantity = quantity + ? WHERE id = ? AND tenant_id = ?',
+      [stockToRestore, sale.product_id, req.tenant_id]
+    );
+
+    // 4. Recalculate financial parameters
+    const valuePerUnit = originalRevenue / originalQty;
+    const returnedValuation = valuePerUnit * qtyToCompare;
+
+    // Calculate outstanding due before this return
+    const currentOutstanding = originalRevenue - amountPaid - amountRefundedSoFar;
+    
+    let refundCashAmount = 0;
+    let newAmountPaid = amountPaid;
+
+    if (refund_cash) {
+      // Physical cash refund is requested
+      refundCashAmount = returnedValuation;
+      newAmountPaid = Math.max(0, amountPaid - returnedValuation);
+    } else {
+      // Credit adjustment: reduce outstanding debt first, then refund the rest
+      if (currentOutstanding >= returnedValuation) {
+        refundCashAmount = 0;
+      } else {
+        refundCashAmount = returnedValuation - currentOutstanding;
+        newAmountPaid = Math.max(0, amountPaid - refundCashAmount);
+      }
+    }
+
+    // 5. Update sales record (non-destructively)
+    let newPaymentMethod = sale.payment_method;
+    const finalQuantityReturned = returnedQtySoFar + qtyToCompare;
+    const finalAmountRefunded = amountRefundedSoFar + returnedValuation;
+    const netRevenue = originalRevenue - finalAmountRefunded;
+
+    if (finalQuantityReturned >= originalQty) {
+      newPaymentMethod = "Returned";
+    } else if (newAmountPaid === 0) {
+      newPaymentMethod = "Credit";
+    } else if (newAmountPaid < netRevenue) {
+      if (!newPaymentMethod.toLowerCase().includes('partial')) {
+        newPaymentMethod = `Partial (${newPaymentMethod})`;
+      }
+    } else {
+      newPaymentMethod = "Cash";
+    }
+
+    await connection.execute(
+      'UPDATE sales SET quantity_returned = ?, amount_refunded = ?, amount_paid = ?, payment_method = ? WHERE id = ? AND tenant_id = ?',
+      [finalQuantityReturned, finalAmountRefunded, newAmountPaid, newPaymentMethod, id, req.tenant_id]
+    );
+
+    // 6. Insert audit trail in returns table
+    await connection.execute(
+      'INSERT INTO returns (tenant_id, sale_id, quantity_returned, amount_refunded) VALUES (?, ?, ?, ?)',
+      [req.tenant_id, id, qtyToCompare, returnedValuation]
+    );
+
+    await connection.commit();
+    res.json({ 
+      success: true, 
+      message: "Return processed successfully.",
+      refundCashAmount: refundCashAmount,
+      newOutstandingDue: Math.max(0, netRevenue - newAmountPaid)
+    });
+  } catch (err) {
+    await connection.rollback();
+    res.status(400).json({ error: err.message });
+  } finally {
+    connection.release();
   }
 });
 

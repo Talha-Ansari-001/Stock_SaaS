@@ -10,10 +10,13 @@ export default function InventoryView({ token, products, isLoaded, refreshInvent
     supplier_name: '' 
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [formSuccess, setFormSuccess] = useState('');
   
   // Modal tracking state structures
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   const headers = {
     'Content-Type': 'application/json',
@@ -23,8 +26,10 @@ export default function InventoryView({ token, products, isLoaded, refreshInvent
   const handleAdd = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setFormError('');
+    setFormSuccess('');
     try {
-      await fetch('http://localhost:5000/api/products', {
+      const res = await fetch('http://localhost:5000/api/products', {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -36,11 +41,19 @@ export default function InventoryView({ token, products, isLoaded, refreshInvent
           supplier_name: form.supplier_name || null
         }),
       });
+      const data = await res.json();
+      if (!res.ok) {
+        setFormError(data.error || 'Failed to add product. Please try again.');
+        return;
+      }
       setForm({ name: '', quantity: '', price: '', buying_price: '', kg_per_unit: '20', supplier_name: '' });
+      setFormSuccess('Product provisioned successfully!');
+      setTimeout(() => setFormSuccess(''), 3000);
       // Silent background cache sync update
       if (refreshInventory) await refreshInventory();
     } catch (err) {
       console.error('Provision commit failure:', err);
+      setFormError('Network error. Is the backend server running?');
     } finally {
       setIsSubmitting(false);
     }
@@ -49,6 +62,7 @@ export default function InventoryView({ token, products, isLoaded, refreshInvent
   const handleDeleteExecute = async () => {
     if (!deleteTarget) return;
     setIsDeleting(true);
+    setDeleteError('');
     try {
       const res = await fetch(`http://localhost:5000/api/products/${deleteTarget.id}`, {
         method: 'DELETE',
@@ -57,9 +71,13 @@ export default function InventoryView({ token, products, isLoaded, refreshInvent
       if (res.ok) {
         setDeleteTarget(null);
         if (refreshInventory) await refreshInventory();
+      } else {
+        const data = await res.json();
+        setDeleteError(data.error || 'Failed to delete product.');
       }
     } catch (err) {
       console.error('Purge transaction failure:', err);
+      setDeleteError('Network error. Please try again.');
     } finally {
       setIsDeleting(false);
     }
@@ -179,6 +197,18 @@ export default function InventoryView({ token, products, isLoaded, refreshInvent
             </div>
           </div>
 
+          {/* Error / Success feedback */}
+          {formError && (
+            <div className="text-xs font-mono text-red-500 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+              ✕ {formError}
+            </div>
+          )}
+          {formSuccess && (
+            <div className="text-xs font-mono text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2">
+              ✓ {formSuccess}
+            </div>
+          )}
+
           <button
             type="submit"
             disabled={isSubmitting}
@@ -267,10 +297,15 @@ export default function InventoryView({ token, products, isLoaded, refreshInvent
                 Are you sure you want to permanently delete <span className="text-text-primary font-mono bg-surface px-1.5 py-0.5 rounded border border-border-subtle">{deleteTarget.name}</span>? This action cannot be reversed.
               </p>
             </div>
+            {deleteError && (
+              <div className="text-xs font-mono text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                ✕ {deleteError}
+              </div>
+            )}
             <div className="flex items-center gap-3">
               <button
                 disabled={isDeleting}
-                onClick={() => setDeleteTarget(null)}
+                onClick={() => { setDeleteTarget(null); setDeleteError(''); }}
                 className="flex-1 border border-border-subtle text-text-secondary hover:text-text-primary hover:bg-surface-hover text-sm font-medium p-2.5 rounded-lg transition-all cursor-pointer"
               >
                 Cancel

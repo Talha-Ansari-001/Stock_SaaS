@@ -7,7 +7,8 @@ export default function SalesView({ token, products, isLoaded, refreshInventory 
     buyer_name: '',
     buyer_contact: '',
     quantity_unit: 'Kg',
-    payment_method: 'Cash'
+    payment_method: 'Cash',
+    amount_paid: '' // Track upfront cash/online collections
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedback, setFeedback] = useState(null);
@@ -17,15 +18,52 @@ export default function SalesView({ token, products, isLoaded, refreshInventory 
     'Authorization': `Bearer ${token}`,
   };
 
+  const selectedProduct = products.find((p) => String(p.id) === String(form.product_id));
+
+  // ⚡ Calculate Estimated Bill Value on the fly
+  const currentPrice = selectedProduct ? parseFloat(selectedProduct.price || 0) : 0;
+  const inputQty = parseFloat(form.quantity_to_sell || 0);
+  const estimatedTotal = form.quantity_unit === 'Kg' && selectedProduct
+    ? (currentPrice / (parseFloat(selectedProduct.kg_per_unit) || 1)) * inputQty
+    : currentPrice * inputQty;
+
   const handleSaleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
     setFeedback(null);
+
+    const totalBill = estimatedTotal;
+    const upfrontPaid = form.amount_paid !== '' ? parseFloat(form.amount_paid) : totalBill;
+
+    if (upfrontPaid < 0) {
+      setFeedback({ type: 'error', message: 'Amount paid cannot be negative.' });
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (upfrontPaid > totalBill) {
+      setFeedback({ type: 'error', message: 'Amount paid cannot exceed total bill.' });
+      setIsSubmitting(false);
+      return;
+    }
+
+    // Determine final calculated ledger flags
+    let absoluteMethod = form.payment_method;
+    if (upfrontPaid === 0) {
+      absoluteMethod = 'Credit';
+    } else if (upfrontPaid < totalBill) {
+      absoluteMethod = `Partial (${form.payment_method})`;
+    }
+
     try {
       const res = await fetch('http://localhost:5000/api/sales', {
         method: 'POST',
         headers,
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          ...form,
+          payment_method: absoluteMethod,
+          amount_paid: upfrontPaid // Sent directly to backend
+        }),
       });
       const data = await res.json();
       
@@ -39,13 +77,11 @@ export default function SalesView({ token, products, isLoaded, refreshInventory 
           buyer_name: '',
           buyer_contact: '',
           quantity_unit: 'Kg',
-          payment_method: 'Cash'
+          payment_method: 'Cash',
+          amount_paid: ''
         });
         
-        // ⚡ Instantly triggers App.jsx to fetch fresh stock numbers from database
-        if (refreshInventory) {
-          await refreshInventory();
-        }
+        if (refreshInventory) await refreshInventory();
       }
     } catch (err) {
       setFeedback({ type: 'error', message: 'Network connection failure.' });
@@ -54,9 +90,6 @@ export default function SalesView({ token, products, isLoaded, refreshInventory 
     }
   };
 
-  const selectedProduct = products.find((p) => String(p.id) === String(form.product_id));
-
-  // ⚡ Helper metrics calculator for real-time stock feedback
   const getStockDisplay = (product) => {
     if (!product) return '';
     const quantity = parseFloat(product.quantity || 0);
@@ -81,15 +114,9 @@ export default function SalesView({ token, products, isLoaded, refreshInventory 
           onSubmit={handleSaleSubmit}
           className="bg-panel border border-border-subtle rounded-xl p-6 sm:p-8 space-y-6 shadow-xs relative"
         >
-          <div className="space-y-1 text-left mb-4">
-            <h2 className="text-base font-medium tracking-tight text-text-primary font-sans">
-              New Transaction Entry
-            </h2>
-          </div>
-
           <div className="space-y-5">
             {/* Target Product Catalog Picker */}
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 text-left">
               <label className="text-xs tracking-tight text-text-muted font-sans block">Target Catalog Product</label>
               <select
                 required
@@ -109,24 +136,6 @@ export default function SalesView({ token, products, isLoaded, refreshInventory 
                 )}
               </select>
             </div>
-
-            {/* Dynamic Metric Information Cards */}
-            {selectedProduct && (
-              <div className="flex flex-col gap-2 p-4 bg-surface rounded-lg border border-border-subtle/50 text-left text-xs font-sans">
-                <div className="flex justify-between">
-                  <span className="text-text-muted">Packaging Spec:</span>
-                  <span className="font-mono text-text-primary font-semibold">
-                    {parseFloat(selectedProduct.kg_per_unit || 1)} Kg per Bag
-                  </span>
-                </div>
-                <div className="flex justify-between border-t border-border-subtle/30 pt-2">
-                  <span className="text-text-muted">Available Stock Balance:</span>
-                  <span className="font-mono font-bold text-emerald-500">
-                    {getStockDisplay(selectedProduct)}
-                  </span>
-                </div>
-              </div>
-            )}
 
             {/* Customer Details Inline Form Layout */}
             <div className="grid grid-cols-2 gap-4 text-left">
@@ -152,7 +161,7 @@ export default function SalesView({ token, products, isLoaded, refreshInventory 
               </div>
             </div>
 
-            {/* Inventory Reduction Counter Inputs */}
+            {/* Inventory Deduction Counter Inputs */}
             <div className="space-y-1.5 text-left">
               <label className="text-xs tracking-tight text-text-muted font-sans block">Quantity To Deduct</label>
               <div className="flex gap-2">
@@ -161,7 +170,7 @@ export default function SalesView({ token, products, isLoaded, refreshInventory 
                   placeholder="Enter numeric volume"
                   required
                   min="0.001"
-                  step="any" // ⚡ Supports fraction points (e.g. 2.5 kg, 0.5 kg) without forcing integers
+                  step="any"
                   value={form.quantity_to_sell}
                   onChange={(e) => setForm({ ...form, quantity_to_sell: e.target.value })}
                   className="flex-1 bg-surface border border-border-subtle focus:border-zinc-500 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
@@ -176,6 +185,29 @@ export default function SalesView({ token, products, isLoaded, refreshInventory 
                 </select>
               </div>
             </div>
+
+            {/* Dynamic Financial Math Boxes */}
+            {estimatedTotal > 0 && (
+              <div className="p-4 bg-surface rounded-lg border border-border-subtle/60 text-left space-y-3 font-sans">
+                <div className="flex justify-between text-xs">
+                  <span className="text-text-muted">Total Order Value:</span>
+                  <span className="font-mono font-bold text-text-primary">₹{estimatedTotal.toFixed(2)}</span>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-mono uppercase tracking-wider text-text-muted block">Amount Paid Upfront (₹)</label>
+                  <input 
+                    type="number"
+                    step="any"
+                    min="0"
+                    max={estimatedTotal}
+                    placeholder={`Leave blank if paid in full (₹${estimatedTotal.toFixed(2)})`}
+                    value={form.amount_paid}
+                    onChange={(e) => setForm({ ...form, amount_paid: e.target.value })}
+                    className="w-full bg-panel border border-border-subtle rounded px-3 py-2 text-xs font-mono text-text-primary outline-none"
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Payment Method Selector Grid */}
             <div className="space-y-1.5 text-left">
@@ -200,11 +232,7 @@ export default function SalesView({ token, products, isLoaded, refreshInventory 
           </div>
 
           {feedback && (
-            <div className={`p-3 rounded-lg text-xs font-mono tracking-tight text-left border ${
-              feedback.type === 'success' 
-                ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' 
-                : 'bg-red-500/10 text-red-500 border-red-500/20'
-            }`}>
+            <div className={`p-3 rounded-lg text-xs font-mono tracking-tight text-left border ${feedback.type === 'success' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>
               {feedback.message}
             </div>
           )}

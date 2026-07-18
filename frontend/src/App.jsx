@@ -113,7 +113,7 @@ export default function App() {
           />
         );
       case 'reports':
-        return <ReportsView salesHistory={salesHistory} isLoaded={isSalesLoaded} />;
+        return <ReportsView salesHistory={salesHistory} isLoaded={isSalesLoaded} refreshReports={loadSalesHistory} token={token} />;
       default:
         return <div className="text-sm font-mono p-6">View index reference context missing.</div>;
     }
