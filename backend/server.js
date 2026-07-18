@@ -4,18 +4,26 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt'); // ⚡ Secure cryptographic hashing
 
+// Load environmental variables in development if you are using dotenv
+require('dotenv').config(); 
+
 const app = express();
 app.use(express.json());
 app.use(cors());
 
-const JWT_SECRET = 'TRADER_OS_SECRET_KEY';
+const JWT_SECRET = process.env.JWT_SECRET || 'TRADER_OS_SECRET_KEY';
 
+// 🌐 CONNECTING TO YOUR ONLINE AIVEN DATABASE WITH REQUIRED SSL
 const pool = mysql.createPool({
-  host: '127.0.0.1',
-  user: 'root',
-  password: 'root', // Put your MySQL password here
-  database: 'simple_saas_inventory',
-  connectionLimit: 10
+  host: process.env.DB_HOST || '127.0.0.1',
+  port: Number(process.env.DB_PORT) || 3306,
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || 'root',
+  database: process.env.DB_NAME || 'simple_saas_inventory',
+  connectionLimit: 10,
+  ssl: process.env.DB_SSL === 'true' ? {
+    rejectUnauthorized: false // Required for managed cloud providers like Aiven
+  } : false
 });
 
 // ─────────────────────────────────────────────
@@ -130,26 +138,18 @@ app.post('/api/products', async (req, res) => {
   }
 
   try {
-    const [result] = await pool.execute(
-      `INSERT INTO products 
-        (tenant_id, name, quantity, price, buying_price, kg_per_unit, supplier_name) 
-       VALUES (?, ?, ?, ?, ?, ?, ?) 
-       ON DUPLICATE KEY UPDATE 
-        quantity = quantity + VALUES(quantity),
-        price = VALUES(price),
-        buying_price = VALUES(buying_price),
-        kg_per_unit = VALUES(kg_per_unit),
-        supplier_name = VALUES(supplier_name)`,
-      [
-        req.tenant_id,
-        name,
-        quantity,
-        price,
-        buying_price,
-        kg_per_unit || 1.00, // ⚡ Writes the conversion ratio multiplier
-        supplier_name || null
-      ]
-    );
+    const [existing] = await pool.execute('SELECT id FROM products WHERE name = ? AND tenant_id = ?', [name, req.tenant_id]);
+    if (existing.length > 0) {
+      await pool.execute(
+        'UPDATE products SET quantity = quantity + ?, price = ?, buying_price = ?, kg_per_unit = ?, supplier_name = ? WHERE id = ? AND tenant_id = ?',
+        [Number(quantity), Number(price), Number(buying_price), Number(kg_per_unit || 1.00), supplier_name || null, existing[0].id, req.tenant_id]
+      );
+    } else {
+      await pool.execute(
+        'INSERT INTO products (tenant_id, name, quantity, price, buying_price, kg_per_unit, supplier_name) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [req.tenant_id, name, Number(quantity), Number(price), Number(buying_price), Number(kg_per_unit || 1.00), supplier_name || null]
+      );
+    }
     res.status(201).json({ success: true, message: "Inventory updated successfully" });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -237,11 +237,11 @@ app.get('/api/sales/history', async (req, res) => {
       SELECT s.id, p.name AS product_name, s.product_id, s.quantity_sold, s.total_revenue, s.amount_paid,
              s.quantity_returned, s.amount_refunded, p.kg_per_unit, s.buyer_name, s.buyer_contact, s.quantity_unit, s.payment_method, s.sold_at 
       FROM sales s
-      JOIN products p ON s.product_id = p.id
+      JOIN products p ON s.product_id = p.id AND p.tenant_id = ?
       WHERE s.tenant_id = ?
       ORDER BY s.sold_at DESC;
     `;
-    const [rows] = await pool.execute(query, [req.tenant_id]);
+    const [rows] = await pool.execute(query, [req.tenant_id, req.tenant_id]);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -315,7 +315,6 @@ app.patch('/api/sales/:id/settle', async (req, res) => {
 
 /**
  * 🔄 SALES: Process Partial Item Returns / Refunds
- * Computes weight fractions dynamically, refunds cash, or automatically scales down credit liabilities.
  */
 app.post('/api/sales/:id/return', async (req, res) => {
   const { id } = req.params;
@@ -329,10 +328,9 @@ app.post('/api/sales/:id/return', async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    // 1. Fetch sale data under isolated update locks
     const [sales] = await connection.execute(
       'SELECT product_id, quantity_sold, total_revenue, amount_paid, quantity_returned, amount_refunded, quantity_unit, payment_method FROM sales WHERE id = ? AND tenant_id = ? FOR UPDATE', 
-      [id, req.tenant_id]
+      [Number(id), req.tenant_id]
     );
     if (sales.length === 0) throw new Error("Transaction record not found within your tenant ecosystem.");
     
@@ -343,20 +341,18 @@ app.post('/api/sales/:id/return', async (req, res) => {
     const amountPaid = parseFloat(sale.amount_paid);
     const amountRefundedSoFar = parseFloat(sale.amount_refunded || 0);
     
-    // 2. Fetch specific product data to correctly unpack packaging metrics
     const [products] = await connection.execute(
       'SELECT id, quantity, kg_per_unit FROM products WHERE id = ? AND tenant_id = ? FOR UPDATE',
-      [sale.product_id, req.tenant_id]
+      [Number(sale.product_id), req.tenant_id]
     );
     if (products.length === 0) throw new Error("Parent catalog item structure no longer exists.");
     
     const product = products[0];
     const kgPerUnit = parseFloat(product.kg_per_unit) || 1.00;
 
-    // Convert input quantity to the original sale's unit
     const inputQty = parseFloat(returned_quantity);
-    let qtyToCompare = 0; // return qty in sale's unit
-    let stockToRestore = 0; // return qty in Bags
+    let qtyToCompare = 0; 
+    let stockToRestore = 0; 
 
     if (sale.quantity_unit === 'Kg') {
       if (quantity_unit === 'Kg') {
@@ -366,7 +362,7 @@ app.post('/api/sales/:id/return', async (req, res) => {
         qtyToCompare = inputQty * kgPerUnit;
         stockToRestore = inputQty;
       }
-    } else { // sale unit is Bags
+    } else { 
       if (quantity_unit === 'Bags') {
         qtyToCompare = inputQty;
         stockToRestore = inputQty;
@@ -381,28 +377,23 @@ app.post('/api/sales/:id/return', async (req, res) => {
       throw new Error(`Invalid request. Max returnable volume is ${remainingReturnable.toFixed(2)} ${sale.quantity_unit}`);
     }
 
-    // 3. Reverse inventory volume weights securely
     await connection.execute(
       'UPDATE products SET quantity = quantity + ? WHERE id = ? AND tenant_id = ?',
-      [stockToRestore, sale.product_id, req.tenant_id]
+      [Number(stockToRestore), Number(sale.product_id), req.tenant_id]
     );
 
-    // 4. Recalculate financial parameters
     const valuePerUnit = originalRevenue / originalQty;
     const returnedValuation = valuePerUnit * qtyToCompare;
 
-    // Calculate outstanding due before this return
     const currentOutstanding = originalRevenue - amountPaid - amountRefundedSoFar;
     
     let refundCashAmount = 0;
     let newAmountPaid = amountPaid;
 
     if (refund_cash) {
-      // Physical cash refund is requested
       refundCashAmount = returnedValuation;
       newAmountPaid = Math.max(0, amountPaid - returnedValuation);
     } else {
-      // Credit adjustment: reduce outstanding debt first, then refund the rest
       if (currentOutstanding >= returnedValuation) {
         refundCashAmount = 0;
       } else {
@@ -411,7 +402,6 @@ app.post('/api/sales/:id/return', async (req, res) => {
       }
     }
 
-    // 5. Update sales record (non-destructively)
     let newPaymentMethod = sale.payment_method;
     const finalQuantityReturned = returnedQtySoFar + qtyToCompare;
     const finalAmountRefunded = amountRefundedSoFar + returnedValuation;
@@ -431,13 +421,22 @@ app.post('/api/sales/:id/return', async (req, res) => {
 
     await connection.execute(
       'UPDATE sales SET quantity_returned = ?, amount_refunded = ?, amount_paid = ?, payment_method = ? WHERE id = ? AND tenant_id = ?',
-      [finalQuantityReturned, finalAmountRefunded, newAmountPaid, newPaymentMethod, id, req.tenant_id]
+      [Number(finalQuantityReturned), Number(finalAmountRefunded), Number(newAmountPaid), newPaymentMethod, Number(id), req.tenant_id]
     );
 
-    // 6. Insert audit trail in returns table
+    await connection.execute(
+      `CREATE TABLE IF NOT EXISTS returns (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id VARCHAR(36) NOT NULL,
+        sale_id INT NOT NULL,
+        quantity_returned DECIMAL(10, 2) NOT NULL,
+        amount_refunded DECIMAL(10, 2) NOT NULL,
+        returned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`
+    );
     await connection.execute(
       'INSERT INTO returns (tenant_id, sale_id, quantity_returned, amount_refunded) VALUES (?, ?, ?, ?)',
-      [req.tenant_id, id, qtyToCompare, returnedValuation]
+      [req.tenant_id, Number(id), Number(qtyToCompare), Number(returnedValuation)]
     );
 
     await connection.commit();
