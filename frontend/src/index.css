@@ -103,7 +103,7 @@
     -webkit-appearance: none;
   }
 
-  /* ── 2. Custom Scrollbars — Workspace ─────────────────────────────── */
+  /* ── 2. Global Custom Scrollbars — Workspace ─────────────────────── */
 
   /* Webkit (Chrome, Edge, Safari) */
   ::-webkit-scrollbar {
@@ -169,6 +169,17 @@
 
 @utility custom-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: var(--theme-surface-hover) var(--theme-panel);
+  scrollbar-color: var(--theme-surface-hover) transparent;
   -webkit-overflow-scrolling: touch;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: var(--theme-surface-hover);
+    border-radius: 9999px;
+  }
 }

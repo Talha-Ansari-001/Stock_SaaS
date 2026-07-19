@@ -1,334 +1,468 @@
-import React, { useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 
-export default function DashboardView({ products = [], salesHistory = [], isLoaded = false }) {
-  // ── KPI CALCULATIONS ──────────────────────────────────────────
-  const totalRevenue = useMemo(() =>
-    salesHistory.reduce((acc, s) => acc + (parseFloat(s.total_revenue || 0) - parseFloat(s.amount_refunded || 0)), 0),
-    [salesHistory]
-  );
+const formatSaleTimestamp = (dateStr) => {
+  if (!dateStr) return "Timestamps offline";
+  const date = new Date(dateStr);
+  const day = date.getDate();
+  const month = date.toLocaleString('en-IN', { month: 'short' });
+  let hours = date.getHours();
+  const minutes = date.getMinutes().toString().padStart(2, '0');
+  const ampm = hours >= 12 ? 'pm' : 'am';
+  hours = hours % 12;
+  hours = hours ? hours : 12;
+  const time = `${hours}:${minutes} ${ampm}`;
+  return `${day} ${month}, ${time}`;
+};
 
-  const totalCost = useMemo(() => {
-    // Map product buying prices by id for lookup
-    const priceMap = {};
-    products.forEach(p => { priceMap[p.id] = parseFloat(p.buying_price || 0); });
-    return salesHistory.reduce((acc, s) => {
-      const buyPrice = priceMap[s.product_id] || 0;
-      return acc + buyPrice * parseFloat(s.quantity_sold || 0);
-    }, 0);
-  }, [salesHistory, products]);
+const formatCurrency = (val) => {
+  const num = parseFloat(val || 0);
+  return num % 1 === 0 ? `₹${num.toFixed(0)}` : `₹${num.toFixed(2)}`;
+};
 
-  const netProfit = totalRevenue - totalCost;
+export default function TraderDashboard({ 
+  token,
+  products: propProducts,
+  salesHistory: propSalesHistory,
+  expenses: propExpenses,
+  isLoaded,
+  refreshProducts,
+  refreshSales,
+  refreshExpenses
+}) {
+  
+  const [localProducts, setLocalProducts] = useState([]);
+  const [localSalesHistory, setLocalSalesHistory] = useState([]);
+  const [localExpenses, setLocalExpenses] = useState([]);
+  const [localLoading, setLocalLoading] = useState(true);
+  const [localError, setLocalError] = useState(null);
 
-  const totalReceived = useMemo(() =>
-    salesHistory.reduce((acc, s) => {
-      const isCreditOrPartial = s.payment_method?.toLowerCase().includes('credit') || s.payment_method?.toLowerCase().includes('partial');
-      return acc + parseFloat(isCreditOrPartial ? (s.amount_paid || 0) : (s.total_revenue || 0));
-    }, 0),
-    [salesHistory]
-  );
+  const products = propProducts !== undefined ? propProducts : localProducts;
+  const salesHistory = propSalesHistory !== undefined ? propSalesHistory : localSalesHistory;
+  const expenses = propExpenses !== undefined ? propExpenses : localExpenses;
+  const loading = propProducts !== undefined ? !isLoaded : localLoading;
+  const error = localError;
+  
+  // Form States
+  const [newProduct, setNewProduct] = useState({ name: '', quantity: '', price: '' });
+  const [newSale, setNewSale] = useState({ product_id: '', quantity_to_sell: '' });
 
-  const totalOutstanding = useMemo(() =>
-    salesHistory.reduce((acc, s) => {
-      const isCreditOrPartial = s.payment_method?.toLowerCase().includes('credit') || s.payment_method?.toLowerCase().includes('partial');
-      return acc + (isCreditOrPartial ? (parseFloat(s.total_revenue || 0) - parseFloat(s.amount_paid || 0) - parseFloat(s.amount_refunded || 0)) : 0);
-    }, 0),
-    [salesHistory]
-  );
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`
+  };
 
-  const totalItems = useMemo(() =>
-    products.reduce((acc, p) => acc + parseFloat(p.quantity || 0), 0),
-    [products]
-  );
+  const loadData = async () => {
+    try {
+      setLocalLoading(true);
+      setLocalError(null);
 
-  const todayRevenue = useMemo(() => {
-    const today = new Date().toDateString();
-    return salesHistory
-      .filter(s => s.sold_at && new Date(s.sold_at).toDateString() === today)
-      .reduce((acc, s) => acc + (parseFloat(s.total_revenue || 0) - parseFloat(s.amount_refunded || 0)), 0);
-  }, [salesHistory]);
+      // Concurrent data fetching matrix
+      const [prodRes, salesRes, expRes] = await Promise.all([
+        fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/products`, { headers }),
+        fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/sales/history`, { headers }),
+        fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/expenses`, { headers })
+      ]);
 
-  // Low stock items (quantity <= 5)
-  const lowStockItems = useMemo(() =>
-    products.filter(p => parseFloat(p.quantity || 0) <= 5),
-    [products]
-  );
+      if (!prodRes.ok) throw new Error(`Products server fault: ${prodRes.status}`);
+      if (!salesRes.ok) throw new Error(`Sales server fault: ${salesRes.status}`);
+      
+      const prodData = await prodRes.json();
+      const salesData = await salesRes.json();
+      
+      setLocalProducts(Array.isArray(prodData) ? prodData : []);
+      setLocalSalesHistory(Array.isArray(salesData) ? salesData : []);
 
-  // Recent sales (last 6)
-  const recentSales = useMemo(() =>
-    [...salesHistory].slice(0, 6),
-    [salesHistory]
-  );
+      // Gracefully handle expense tracking if backend table verification is pending
+      if (expRes.ok) {
+        const expData = await expRes.json();
+        setLocalExpenses(Array.isArray(expData) ? expData : (expData.expenses || []));
+      } else {
+        setLocalExpenses([]);
+      }
 
-  // Top products by revenue
-  const topProducts = useMemo(() => {
-    const map = {};
-    salesHistory.forEach(s => {
-      if (!map[s.product_name]) map[s.product_name] = 0;
-      map[s.product_name] += parseFloat(s.total_revenue || 0);
-    });
-    return Object.entries(map)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5);
-  }, [salesHistory]);
+    } catch (err) {
+      console.error("Error syncing dashboard parameters:", err);
+      setLocalError(err.message);
+    } finally {
+      setLocalLoading(false);
+    }
+  };
 
-  const maxProductRevenue = topProducts.length > 0 ? topProducts[0][1] : 1;
+  const triggerRefresh = async () => {
+    if (propProducts !== undefined) {
+      const promises = [];
+      if (refreshProducts) promises.push(refreshProducts());
+      if (refreshSales) promises.push(refreshSales());
+      if (refreshExpenses) promises.push(refreshExpenses());
+      await Promise.all(promises);
+    } else {
+      await loadData();
+    }
+  };
 
-  const fmt = (n) => n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  useEffect(() => {
+    if (propProducts !== undefined) {
+      return;
+    }
+    if (token) {
+      loadData();
+    } else {
+      setLocalError("Missing active authorization context.");
+      setLocalLoading(false);
+    }
+  }, [token, propProducts]);
 
-  if (!isLoaded) {
+  const handleAddProduct = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/products`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(newProduct)
+      });
+      if (res.ok) {
+        setNewProduct({ name: '', quantity: '', price: '' });
+        await triggerRefresh();
+      }
+    } catch (err) {
+      alert("Failed to write inventory asset.");
+    }
+  };
+
+  const handleLogSale = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/sales`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(newSale)
+      });
+      const data = await res.json();
+      if (data.error) {
+        alert(data.error);
+      } else {
+        setNewSale({ product_id: '', quantity_to_sell: '' });
+        await triggerRefresh();
+      }
+    } catch (err) {
+      alert("Failed to execute deductive sale transaction.");
+    }
+  };
+
+  // 🧮 FIXED ARITHMETIC METRICS MATRIX (IMPROVED ACCURACY)
+  
+  // 1. Total Billed (Net Billed Revenue = total_revenue - amount_refunded)
+  const totalBilled = salesHistory.reduce((acc, sale) => {
+    const rev = parseFloat(sale.total_revenue || 0);
+    const ref = parseFloat(sale.amount_refunded || 0);
+    return acc + Math.max(0, rev - ref);
+  }, 0);
+
+  // 2. Received (Net amount paid in cash, which is already net of cash refunds in DB)
+  const receivedCash = salesHistory.reduce((acc, sale) => {
+    return acc + parseFloat(sale.amount_paid || 0);
+  }, 0);
+  
+  // 3. Dues Pending (Calculated per-sale to ensure accuracy: Max(0, total - paid - refunded))
+  const duesPending = salesHistory.reduce((acc, sale) => {
+    const total = parseFloat(sale.total_revenue || 0);
+    const paid = parseFloat(sale.amount_paid || 0);
+    const refunded = parseFloat(sale.amount_refunded || 0);
+    const due = Math.max(0, total - paid - refunded);
+    return acc + due;
+  }, 0);
+
+  // 4. Net Profit/Loss Calculation (Net Billed Revenue - COGS - Active Expenses)
+  const totalCOGS = salesHistory.reduce((acc, sale) => {
+    const product = products.find(p => p.id === sale.product_id);
+    if (product) {
+      const kgPerUnit = parseFloat(product.kg_per_unit || 1);
+      const buyingPrice = parseFloat(product.buying_price || 0);
+      const qtySold = parseFloat(sale.quantity_sold || 0);
+      const qtyReturned = parseFloat(sale.quantity_returned || 0);
+      const netQty = Math.max(0, qtySold - qtyReturned);
+      
+      const bagsSold = sale.quantity_unit === 'Kg' ? (netQty / kgPerUnit) : netQty;
+      const cogs = bagsSold * buyingPrice;
+      return acc + cogs;
+    }
+    return acc;
+  }, 0);
+
+  const totalExpenses = expenses.reduce((acc, exp) => acc + parseFloat(exp.amount || 0), 0);
+  const netProfit = totalBilled - totalCOGS - totalExpenses;
+
+  // 5. Today's Sales Activity Tracker (Net Sales today)
+  const todaySales = salesHistory.reduce((acc, sale) => {
+    if (!sale.sold_at) return acc;
+    const saleDate = new Date(sale.sold_at).toDateString();
+    const todayDate = new Date().toDateString();
+    if (saleDate === todayDate) {
+      const netSaleRev = parseFloat(sale.total_revenue || 0) - parseFloat(sale.amount_refunded || 0);
+      return acc + Math.max(0, netSaleRev);
+    }
+    return acc;
+  }, 0);
+
+  // 6. Volumetric Stock Evaluation (Accurate float aggregation)
+  const totalStockBags = products.reduce((acc, p) => acc + parseFloat(p.quantity !== undefined ? p.quantity : p.stock || 0), 0);
+  const activeSKUs = products.length;
+
+  // Top Products Analytics (Net Revenue by Product)
+  const productRevenueMap = {};
+  salesHistory.forEach(sale => {
+    const name = sale.product_name || "Unknown Product";
+    const netRev = parseFloat(sale.total_revenue || 0) - parseFloat(sale.amount_refunded || 0);
+    productRevenueMap[name] = (productRevenueMap[name] || 0) + Math.max(0, netRev);
+  });
+
+  const topProducts = Object.keys(productRevenueMap).map(name => ({
+    name,
+    revenue: productRevenueMap[name]
+  })).sort((a, b) => b.revenue - a.revenue);
+
+  const maxRevenue = topProducts.length > 0 ? Math.max(...topProducts.map(p => p.revenue)) : 0;
+
+  if (loading) {
     return (
-      <div className="flex items-center justify-center h-64 text-text-muted font-mono text-xs tracking-widest animate-pulse">
-        Syncing dashboard data...
+      <div className="min-h-screen bg-[#f8f9fa] dark:bg-[#0c0c0e] text-zinc-400 flex items-center justify-center font-mono text-xs uppercase tracking-widest">
+        Synchronizing Command Center Ledger Workspace...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-[#f8f9fa] dark:bg-[#0c0c0e] text-red-500 flex flex-col items-center justify-center p-4">
+        <div className="border border-red-200 dark:border-red-950/40 bg-white dark:bg-[#121214] p-6 max-w-md w-full text-center rounded-xl shadow-sm">
+          <h2 className="text-xs font-mono font-bold tracking-wider uppercase mb-2">Workspace Error Boundary</h2>
+          <p className="text-xs text-zinc-500 font-mono break-words bg-zinc-50 dark:bg-zinc-900 p-3 rounded mb-4">{error}</p>
+          <button onClick={triggerRefresh} className="w-full bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 py-2 rounded-lg text-xs font-mono transition-all uppercase font-semibold">
+            Retry Connection Request
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      {/* Page Header */}
-      <header className="space-y-1 text-left">
-        <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-text-primary font-sans">
-          Command Center
-        </h1>
-        <p className="text-xs md:text-sm tracking-tight text-text-muted font-mono lowercase">
-          overview / live_metrics_dashboard
-        </p>
+    <div className="space-y-8 animate-fade-in text-left">
+      {/* Dashboard Top Title Bar */}
+      <header className="space-y-1">
+        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-white font-sans">Command Center</h1>
+        <p className="text-sm tracking-tight text-zinc-500 dark:text-zinc-400 font-mono lowercase">overview / live_metrics_dashboard</p>
       </header>
 
-      {/* KPI CARDS */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
-        {/* Total Billed Sales */}
-        <div className="bg-panel border border-border-subtle rounded-xl p-5 space-y-3 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-mono uppercase tracking-wider text-text-muted">Total Billed</span>
-            <span className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-              <svg className="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+      {/* 📊 WIDGET CONTROL GRID (6 INTERFACES) */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        {/* Card 1: Total Billed */}
+        <div className="bg-white dark:bg-[#121214] border border-zinc-200 dark:border-[#1f1f23] p-4 rounded-xl shadow-sm flex flex-col justify-between min-h-[115px]">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] font-mono font-bold tracking-wider text-zinc-400 uppercase">Total Billed</span>
+            <div className="p-1.5 bg-emerald-50 dark:bg-emerald-950/30 rounded-lg text-emerald-500 text-xs">💵</div>
+          </div>
+          <div className="my-2">
+            <span className="text-lg font-bold font-mono text-emerald-600 dark:text-emerald-400">
+              ₹{totalBilled.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           </div>
-          <div>
-            <p className="text-xl font-bold font-mono text-emerald-500 tracking-tight">₹{fmt(totalRevenue)}</p>
-            <p className="text-[10px] text-text-muted font-mono mt-1">Order totals</p>
-          </div>
+          <span className="text-[9px] font-mono text-zinc-400 lowercase">Order totals</span>
         </div>
 
-        {/* Cash Collected */}
-        <div className="bg-panel border border-border-subtle rounded-xl p-5 space-y-3 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-mono uppercase tracking-wider text-text-muted">Received</span>
-            <span className="w-8 h-8 rounded-lg bg-teal-500/10 flex items-center justify-center">
-              <svg className="w-4 h-4 text-teal-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+        {/* Card 2: Received */}
+        <div className="bg-white dark:bg-[#121214] border border-zinc-200 dark:border-[#1f1f23] p-4 rounded-xl shadow-sm flex flex-col justify-between min-h-[115px]">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] font-mono font-bold tracking-wider text-zinc-400 uppercase">Received</span>
+            <div className="p-1.5 bg-teal-50 dark:bg-teal-950/30 rounded-lg text-teal-500 text-xs">📊</div>
+          </div>
+          <div className="my-2">
+            <span className="text-lg font-bold font-mono text-teal-600 dark:text-teal-400">
+              ₹{receivedCash.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           </div>
-          <div>
-            <p className="text-xl font-bold font-mono text-teal-500 tracking-tight">₹{fmt(totalReceived)}</p>
-            <p className="text-[10px] text-text-muted font-mono mt-1">Cash in hand</p>
-          </div>
+          <span className="text-[9px] font-mono text-zinc-400 lowercase">Cash in hand</span>
         </div>
 
-        {/* Dues Pending */}
-        <div className="bg-panel border border-border-subtle rounded-xl p-5 space-y-3 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-mono uppercase tracking-wider text-text-muted">Dues Pending</span>
-            <span className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
-              <svg className="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+        {/* Card 3: Dues Pending */}
+        <div className="bg-white dark:bg-[#121214] border border-zinc-200 dark:border-[#1f1f23] p-4 rounded-xl shadow-sm flex flex-col justify-between min-h-[115px]">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] font-mono font-bold tracking-wider text-zinc-400 uppercase">Dues Pending</span>
+            <div className="p-1.5 bg-amber-50 dark:bg-amber-950/30 rounded-lg text-amber-500 text-xs">⚠️</div>
+          </div>
+          <div className="my-2">
+            <span className="text-lg font-bold font-mono text-amber-600 dark:text-amber-500">
+              ₹{duesPending.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           </div>
-          <div>
-            <p className="text-xl font-bold font-mono text-amber-500 tracking-tight">₹{fmt(totalOutstanding)}</p>
-            <p className="text-[10px] text-text-muted font-mono mt-1">Credit / Unpaid</p>
-          </div>
+          <span className="text-[9px] font-mono text-zinc-400 lowercase">Credit / Unpaid</span>
         </div>
 
-        {/* Net Profit */}
-        <div className="bg-panel border border-border-subtle rounded-xl p-5 space-y-3 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-mono uppercase tracking-wider text-text-muted">Net Profit</span>
-            <span className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
-              <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-              </svg>
+        {/* Card 4: Net Profit or Dynamic Loss */}
+        <div className="bg-white dark:bg-[#121214] border border-zinc-200 dark:border-[#1f1f23] p-4 rounded-xl shadow-sm flex flex-col justify-between min-h-[115px]">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] font-mono font-bold tracking-wider text-zinc-400 uppercase">Net Profit</span>
+            <div className="p-1.5 bg-blue-50 dark:bg-blue-950/30 rounded-lg text-blue-500 text-xs">📈</div>
+          </div>
+          <div className="my-2">
+            <span className={`text-lg font-bold font-mono ${netProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
+              ₹{Math.abs(netProfit).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           </div>
-          <div>
-            <p className={`text-xl font-bold font-mono tracking-tight ${netProfit >= 0 ? 'text-blue-400' : 'text-red-400'}`}>
-              ₹{fmt(Math.abs(netProfit))}
-            </p>
-            <p className="text-[10px] text-text-muted font-mono mt-1">{netProfit >= 0 ? 'Profit' : 'Loss'}</p>
-          </div>
+          <span className="text-[9px] font-mono text-zinc-400 lowercase">
+            {netProfit >= 0 ? 'Profit' : 'Loss'}
+          </span>
         </div>
 
-        {/* Today's Sales */}
-        <div className="bg-panel border border-border-subtle rounded-xl p-5 space-y-3 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-mono uppercase tracking-wider text-text-muted">Today's Sales</span>
-            <span className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center">
-              <svg className="w-4 h-4 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
+        {/* Card 5: Today's Sales */}
+        <div className="bg-white dark:bg-[#121214] border border-zinc-200 dark:border-[#1f1f23] p-4 rounded-xl shadow-sm flex flex-col justify-between min-h-[115px]">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] font-mono font-bold tracking-wider text-zinc-400 uppercase">Today's Sales</span>
+            <div className="p-1.5 bg-purple-50 dark:bg-purple-950/30 rounded-lg text-purple-500 text-xs">📅</div>
+          </div>
+          <div className="my-2">
+            <span className="text-lg font-bold font-mono text-purple-600 dark:text-purple-400">
+              ₹{todaySales.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           </div>
-          <div>
-            <p className="text-xl font-bold font-mono text-purple-400 tracking-tight">₹{fmt(todayRevenue)}</p>
-            <p className="text-[10px] text-text-muted font-mono mt-1">Today</p>
-          </div>
+          <span className="text-[9px] font-mono text-zinc-400 lowercase">Today</span>
         </div>
 
-        {/* Total Stock */}
-        <div className="bg-panel border border-border-subtle rounded-xl p-5 space-y-3 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-mono uppercase tracking-wider text-text-muted">Stock (Bags)</span>
-            <span className="w-8 h-8 rounded-lg bg-zinc-500/10 flex items-center justify-center">
-              <svg className="w-4 h-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-              </svg>
+        {/* Card 6: Stock Standing Metrics */}
+        <div className="bg-white dark:bg-[#121214] border border-zinc-200 dark:border-[#1f1f23] p-4 rounded-xl shadow-sm flex flex-col justify-between min-h-[115px]">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] font-mono font-bold tracking-wider text-zinc-400 uppercase">Stock (Bags)</span>
+            <div className="p-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-zinc-500 text-xs">📦</div>
+          </div>
+          <div className="my-2">
+            <span className="text-lg font-bold font-mono text-zinc-800 dark:text-zinc-200">
+              {totalStockBags % 1 === 0 ? totalStockBags.toFixed(0) : totalStockBags.toFixed(2)}
             </span>
           </div>
-          <div>
-            <p className="text-xl font-bold font-mono text-zinc-300 tracking-tight">{Number(totalItems).toFixed(0)}</p>
-            <p className="text-[10px] text-text-muted font-mono mt-1">{products.length} SKUs active</p>
-          </div>
+          <span className="text-[9px] font-mono text-zinc-400 lowercase">{activeSKUs} SKUs active</span>
         </div>
       </div>
 
-      {/* SECOND ROW: Top Products + Recent Sales */}
+      {/* 📊 MIDDLE ANALYTICS GRID */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-        {/* TOP PRODUCTS BY REVENUE */}
-        <div className="bg-panel border border-border-subtle rounded-xl shadow-xs overflow-hidden">
-          <div className="px-5 py-4 border-b border-border-subtle/50">
-            <h2 className="text-sm font-medium tracking-tight text-text-primary font-sans">Top Products</h2>
-            <p className="text-[11px] font-mono text-text-muted mt-0.5">by revenue generated</p>
-          </div>
-          <div className="p-5 space-y-4">
-            {topProducts.length === 0 ? (
-              <p className="text-xs text-text-muted font-mono text-center py-6">No sales data available yet.</p>
-            ) : (
-              topProducts.map(([name, revenue]) => (
-                <div key={name} className="space-y-1.5">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium text-text-primary truncate max-w-[60%]">{name}</span>
-                    <span className="text-xs font-mono text-emerald-500 font-semibold">₹{fmt(revenue)}</span>
-                  </div>
-                  <div className="w-full bg-surface rounded-full h-1.5 overflow-hidden">
-                    <div
-                      className="h-full bg-emerald-500 rounded-full transition-all duration-700"
-                      style={{ width: `${(revenue / maxProductRevenue) * 100}%` }}
-                    />
-                  </div>
-                </div>
-              ))
-            )}
+        {/* Top Products Card */}
+        <div className="bg-white dark:bg-[#121214] border border-zinc-200 dark:border-[#1f1f23] rounded-xl shadow-sm p-6 text-left flex flex-col justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 font-sans">Top Products</h2>
+            <p className="text-xs text-zinc-400 dark:text-zinc-500 font-mono lowercase mb-6">by revenue generated</p>
+            
+            <div className="space-y-4">
+              {topProducts.length === 0 ? (
+                <div className="text-xs text-zinc-400 dark:text-zinc-500 font-mono italic py-4">No revenue generated yet.</div>
+              ) : (
+                topProducts.slice(0, 5).map((p, idx) => {
+                  const percentage = maxRevenue > 0 ? (p.revenue / maxRevenue) * 100 : 0;
+                  return (
+                    <div key={idx} className="space-y-2">
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="font-medium text-zinc-900 dark:text-zinc-100">{p.name}</span>
+                        <span className="font-mono text-zinc-500 dark:text-zinc-400 font-semibold">
+                          ₹{p.revenue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      <div className="w-full bg-zinc-100 dark:bg-zinc-800 h-2 rounded-full overflow-hidden">
+                        <div 
+                          className="bg-emerald-500 h-full rounded-full transition-all duration-500" 
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
         </div>
 
-        {/* RECENT SALES */}
-        <div className="bg-panel border border-border-subtle rounded-xl shadow-xs overflow-hidden">
-          <div className="px-5 py-4 border-b border-border-subtle/50">
-            <h2 className="text-sm font-medium tracking-tight text-text-primary font-sans">Recent Transactions</h2>
-            <p className="text-[11px] font-mono text-text-muted mt-0.5">last 6 sales</p>
-          </div>
-          <div className="divide-y divide-border-subtle/40">
-            {recentSales.length === 0 ? (
-              <p className="text-xs text-text-muted font-mono text-center py-8">No sales recorded yet.</p>
-            ) : (
-              recentSales.map((s) => (
-                <div key={s.id} className="flex items-center justify-between px-5 py-3.5 hover:bg-surface/40 transition-colors">
-                  <div className="space-y-0.5 text-left">
-                    <p className="text-sm font-medium text-text-primary">{s.product_name || 'Unknown'}</p>
-                    <p className="text-[11px] font-mono text-text-muted">
-                      {s.sold_at ? new Date(s.sold_at).toLocaleString('en-IN', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
-                      {s.buyer_name ? ` · ${s.buyer_name}` : ''}
-                    </p>
+        {/* Recent Transactions Card */}
+        <div className="bg-white dark:bg-[#121214] border border-zinc-200 dark:border-[#1f1f23] rounded-xl shadow-sm p-6 text-left flex flex-col justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 font-sans">Recent Transactions</h2>
+            <p className="text-xs text-zinc-400 dark:text-zinc-500 font-mono lowercase mb-6">last 3 sales</p>
+            
+            <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              {salesHistory.length === 0 ? (
+                <div className="text-xs text-zinc-400 dark:text-zinc-500 font-mono italic py-4">No recent sales recorded.</div>
+              ) : (
+                salesHistory.slice(0, 3).map((sale, idx) => (
+                  <div key={sale.id || idx} className="py-3 flex justify-between items-center first:pt-0 last:pb-0">
+                    <div className="space-y-1">
+                      <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 block">{sale.product_name || "Catalog Product Asset"}</span>
+                      <span className="text-xs text-zinc-400 dark:text-zinc-500 font-mono block">
+                        {formatSaleTimestamp(sale.sold_at)}{sale.buyer_name ? ` · ${sale.buyer_name}` : ''}
+                      </span>
+                    </div>
+                    <span className="font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                      +₹{parseFloat(sale.total_revenue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
                   </div>
-                  <span className="text-sm font-mono font-semibold text-emerald-500">+₹{fmt(parseFloat(s.total_revenue || 0))}</span>
-                </div>
-              ))
-            )}
+                ))
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* LOW STOCK ALERTS */}
-      {lowStockItems.length > 0 && (
-        <div className="bg-panel border border-amber-500/30 rounded-xl shadow-xs overflow-hidden">
-          <div className="px-5 py-4 border-b border-amber-500/20 flex items-center gap-2">
-            <svg className="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-            <h2 className="text-sm font-medium tracking-tight text-amber-500 font-sans">Low Stock Alerts</h2>
-            <span className="ml-auto text-[11px] font-mono text-amber-500/70">{lowStockItems.length} items</span>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-5">
-            {lowStockItems.map(p => (
-              <div key={p.id} className="flex items-center justify-between bg-amber-500/5 border border-amber-500/20 rounded-lg px-4 py-3">
-                <div>
-                  <p className="text-sm font-medium text-text-primary">{p.name}</p>
-                  {p.supplier_name && <p className="text-[11px] text-text-muted font-mono">{p.supplier_name}</p>}
-                </div>
-                <span className="text-sm font-bold font-mono text-amber-500">
-                  {Number(p.quantity).toFixed(2)} <span className="text-[10px] font-normal">bags</span>
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* INVENTORY SNAPSHOT TABLE */}
-      <div className="bg-panel border border-border-subtle rounded-xl shadow-xs overflow-hidden">
-        <div className="px-5 py-4 border-b border-border-subtle/50">
-          <h2 className="text-sm font-medium tracking-tight text-text-primary font-sans">Inventory Snapshot</h2>
-          <p className="text-[11px] font-mono text-text-muted mt-0.5">current stock levels</p>
-        </div>
+      {/* 📊 BOTTOM INVENTORY SNAPSHOT CARD */}
+      <div className="bg-white dark:bg-[#121214] border border-zinc-200 dark:border-[#1f1f23] rounded-xl shadow-sm p-6 text-left">
+        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 font-sans">Inventory Snapshot</h2>
+        <p className="text-xs text-zinc-400 dark:text-zinc-500 font-mono lowercase mb-6">current stock levels</p>
+        
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="border-b border-border-subtle/50 bg-surface/50">
-                <th className="px-5 py-3 text-[11px] font-mono uppercase tracking-wider text-text-muted">Product</th>
-                <th className="px-5 py-3 text-[11px] font-mono uppercase tracking-wider text-text-muted">Stock</th>
-                <th className="px-5 py-3 text-[11px] font-mono uppercase tracking-wider text-text-muted">Total Kg</th>
-                <th className="px-5 py-3 text-[11px] font-mono uppercase tracking-wider text-text-muted">Buy Price</th>
-                <th className="px-5 py-3 text-[11px] font-mono uppercase tracking-wider text-text-muted">Sell Price</th>
-                <th className="px-5 py-3 text-[11px] font-mono uppercase tracking-wider text-text-muted">Status</th>
+              <tr className="border-b border-zinc-100 dark:border-zinc-800">
+                <th className="pb-3 text-xs font-mono font-bold tracking-wider text-zinc-400 uppercase">Product</th>
+                <th className="pb-3 text-xs font-mono font-bold tracking-wider text-zinc-400 uppercase">Stock</th>
+                <th className="pb-3 text-xs font-mono font-bold tracking-wider text-zinc-400 uppercase">Total Kg</th>
+                <th className="pb-3 text-xs font-mono font-bold tracking-wider text-zinc-400 uppercase">Buy Price</th>
+                <th className="pb-3 text-xs font-mono font-bold tracking-wider text-zinc-400 uppercase">Sell Price</th>
+                <th className="pb-3 text-xs font-mono font-bold tracking-wider text-zinc-400 uppercase">Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border-subtle/30">
+            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {products.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="px-5 py-10 text-center text-text-muted text-xs font-mono">
-                    No inventory items found. Add products via the Inventory tab.
+                  <td colSpan="6" className="py-8 text-center text-xs text-zinc-400 dark:text-zinc-500 font-mono italic">
+                    No products cataloged in inventory.
                   </td>
                 </tr>
               ) : (
-                products.map(p => {
-                  const qty = parseFloat(p.quantity || 0);
-                  const kgPerUnit = parseFloat(p.kg_per_unit || 1);
-                  const totalKg = (qty * kgPerUnit).toFixed(2);
-                  const isLow = qty <= 5;
-                  return (
-                    <tr key={p.id} className="hover:bg-surface/30 transition-colors">
-                      <td className="px-5 py-3.5">
-                        <p className="text-sm font-medium text-text-primary">{p.name}</p>
-                        {p.supplier_name && <p className="text-[10px] text-text-muted font-mono">{p.supplier_name}</p>}
-                      </td>
-                      <td className="px-5 py-3.5 font-mono text-sm text-text-primary">{Number(qty).toFixed(2)} bags</td>
-                      <td className="px-5 py-3.5 font-mono text-sm text-text-secondary">{totalKg} Kg</td>
-                      <td className="px-5 py-3.5 font-mono text-sm text-text-secondary">₹{parseFloat(p.buying_price || 0).toLocaleString('en-IN')}</td>
-                      <td className="px-5 py-3.5 font-mono text-sm font-semibold text-text-primary">₹{parseFloat(p.price || 0).toLocaleString('en-IN')}</td>
-                      <td className="px-5 py-3.5">
-                        <span className={`text-[11px] font-mono px-2 py-0.5 rounded-full ${isLow ? 'bg-amber-500/10 text-amber-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
-                          {isLow ? 'Low Stock' : 'In Stock'}
+                products.map(p => (
+                  <tr key={p.id} className="hover:bg-zinc-50/40 dark:hover:bg-white/5 transition-colors">
+                    <td className="py-4">
+                      <div className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">{p.name}</div>
+                      <div className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono">{p.supplier_name || 'No Supplier'}</div>
+                    </td>
+                    <td className="py-4 font-mono text-zinc-600 dark:text-zinc-300 text-sm">
+                      {parseFloat(p.quantity || 0).toFixed(2)} bags
+                    </td>
+                    <td className="py-4 font-mono text-zinc-600 dark:text-zinc-300 text-sm">
+                      {(parseFloat(p.quantity || 0) * parseFloat(p.kg_per_unit || 1)).toFixed(2)} Kg
+                    </td>
+                    <td className="py-4 font-mono text-zinc-600 dark:text-zinc-300 text-sm">
+                      {formatCurrency(p.buying_price)}
+                    </td>
+                    <td className="py-4 font-mono text-zinc-600 dark:text-zinc-300 text-sm">
+                      {formatCurrency(p.price)}
+                    </td>
+                    <td className="py-4">
+                      {parseFloat(p.quantity || 0) > 0 ? (
+                        <span className="px-2.5 py-1 text-xs font-mono font-medium rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400">
+                          In Stock
                         </span>
-                      </td>
-                    </tr>
-                  );
-                })
+                      ) : (
+                        <span className="px-2.5 py-1 text-xs font-mono font-medium rounded-full bg-red-50 text-red-600 dark:bg-red-950/20 dark:text-red-400">
+                          Out of Stock
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>

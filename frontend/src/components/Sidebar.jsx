@@ -5,6 +5,7 @@ export default function Sidebar({ activePage, setActivePage, isDark, toggleTheme
     { id: 'dashboard', label: 'Overview Dashboard' },
     { id: 'inventory', label: 'Inventory Section' },
     { id: 'sales',     label: 'Sales Section' },
+    { id: 'expenses',  label: 'Expenses Section' }, // 💸 Seamlessly wired into navigation loop
     { id: 'reports',   label: 'Reports Section' }
   ];
 
@@ -20,7 +21,7 @@ export default function Sidebar({ activePage, setActivePage, isDark, toggleTheme
             <button
               key={link.id}
               onClick={() => setActivePage(link.id)}
-              className={`w-full text-left px-4 py-3 text-sm tracking-tight font-medium rounded-lg transition-all duration-300 ${
+              className={`w-full text-left px-4 py-3 text-sm tracking-tight font-medium rounded-lg transition-all duration-300 cursor-pointer ${
                 activePage === link.id 
                   ? 'bg-zinc-900 text-white dark:bg-white/5 dark:text-white shadow-sm' 
                   : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5'
@@ -35,14 +36,14 @@ export default function Sidebar({ activePage, setActivePage, isDark, toggleTheme
       <div className="space-y-2">
         <button 
           onClick={toggleTheme} 
-          className="w-full flex items-center justify-between px-4 py-3 text-sm tracking-tight text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5 rounded-lg transition-all duration-300 font-sans"
+          className="w-full flex items-center justify-between px-4 py-3 text-sm tracking-tight text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5 rounded-lg transition-all duration-300 font-sans cursor-pointer"
         >
           <span>{isDark ? 'Light Mode' : 'Dark Mode'}</span>
           <span className="text-[16px] leading-none">{isDark ? '☀️' : '🌙'}</span>
         </button>
         <button 
           onClick={onLogout} 
-          className="w-full text-left px-4 py-3 text-sm tracking-tight text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-300 rounded-lg transition-all duration-300 font-sans"
+          className="w-full text-left px-4 py-3 text-sm tracking-tight text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-300 rounded-lg transition-all duration-300 font-sans cursor-pointer"
         >
           Exit Workspace
         </button>

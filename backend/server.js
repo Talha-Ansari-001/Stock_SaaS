@@ -54,7 +54,6 @@ if (typeof pool.on === 'function') {
     }
   });
 } else if (pool.pool && typeof pool.pool.on === 'function') {
-  // Catch for some mysql2 wrapper objects
   pool.pool.on('error', (err) => {
     console.error('Unexpected error on idle database client', err);
   });
@@ -81,7 +80,6 @@ app.post('/api/auth/register', async (req, res) => {
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-    // 🌟 FIXED: Stores the password signature safely into the DB columns
     await pool.execute(
       'INSERT INTO tenants (id, business_name, email, password) VALUES (?, ?, ?, ?)',
       [tenantId, business_name, email, hashedPassword]
@@ -108,7 +106,6 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   try {
-    // 🌟 FIXED: Fetch both the id and the stored hashed password string
     let [rows] = await pool.execute('SELECT id, password FROM tenants WHERE email = ?', [email]);
 
     if (rows.length === 0) {
@@ -117,7 +114,6 @@ app.post('/api/auth/login', async (req, res) => {
 
     const tenant = rows[0];
 
-    // ⚡ FIXED: Verify that the raw password matches the database hash safely
     const isPasswordValid = await bcrypt.compare(password, tenant.password);
     if (!isPasswordValid) {
       return res.status(401).json({ error: "Invalid password credentials. Terminal access denied." });
@@ -146,7 +142,6 @@ const authenticateTenant = (req, res, next) => {
   });
 };
 
-// Express applies this to all paths registered below this exact call point
 app.use('/api', authenticateTenant);
 
 // ─────────────────────────────────────────────
@@ -217,7 +212,6 @@ app.post('/api/sales', async (req, res) => {
     let unitsToDeduct = 0;
     let total_revenue = 0;
 
-    // ⚡ FRACTIONAL WEIGHT CONVERSION ENGINE
     if (quantity_unit === 'Kg') {
       unitsToDeduct = inputQty / kgPerUnit;
       total_revenue = (parseFloat(product.price) / kgPerUnit) * inputQty;
@@ -231,7 +225,6 @@ app.post('/api/sales', async (req, res) => {
       throw new Error(`Insufficient Stock level! Only ${Number(product.quantity).toFixed(2)} Bags (${availableKg} Kg) left.`);
     }
 
-    // Deduct stock balance (supports decimal values cleanly!)
     await connection.execute(
       'UPDATE products SET quantity = quantity - ? WHERE id = ? AND tenant_id = ?',
       [unitsToDeduct, product_id, req.tenant_id]
@@ -241,17 +234,7 @@ app.post('/api/sales', async (req, res) => {
 
     await connection.execute(
       'INSERT INTO sales (tenant_id, product_id, quantity_sold, total_revenue, amount_paid, buyer_name, buyer_contact, quantity_unit, payment_method) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [
-        req.tenant_id,
-        product_id,
-        inputQty, 
-        total_revenue,
-        finalAmountPaid,
-        buyer_name || null,
-        buyer_contact || null,
-        quantity_unit || 'Kg',
-        payment_method || 'Cash'
-      ]
+      [req.tenant_id, product_id, inputQty, total_revenue, finalAmountPaid, buyer_name || null, buyer_contact || null, quantity_unit || 'Kg', payment_method || 'Cash']
     );
 
     await connection.commit();
@@ -285,43 +268,10 @@ app.get('/api/sales/history', async (req, res) => {
 // INVENTORY: Delete specific item row cleanly
 app.delete('/api/products/:id', async (req, res) => {
   const { id } = req.params;
-
   try {
-    const [result] = await pool.execute(
-      'DELETE FROM products WHERE id = ? AND tenant_id = ?',
-      [id, req.tenant_id]
-    );
-
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ error: "Item row manifest not found" });
-    }
-
+    const [result] = await pool.execute('DELETE FROM products WHERE id = ? AND tenant_id = ?', [id, req.tenant_id]);
+    if (result.affectedRows === 0) return res.status(404).json({ error: "Item row manifest not found" });
     res.json({ success: true, message: "Inventory record permanently purged." });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// SALES: Update a partial/credit transaction to fully paid
-app.put('/api/sales/:id/complete', async (req, res) => {
-  const { id } = req.params;
-
-  try {
-    const [rows] = await pool.execute('SELECT total_revenue FROM sales WHERE id = ? AND tenant_id = ?', [id, req.tenant_id]);
-    if (rows.length === 0) return res.status(404).json({ error: "Transaction record not found." });
-
-    const total = rows[0].total_revenue;
-
-    const [result] = await pool.execute(
-      'UPDATE sales SET amount_paid = ?, payment_method = "Cash" WHERE id = ? AND tenant_id = ?',
-      [total, id, req.tenant_id]
-    );
-
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ error: "Transaction record not found." });
-    }
-
-    res.json({ success: true, message: "Ledger entry updated to fully completed." });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -335,12 +285,10 @@ app.patch('/api/sales/:id/settle', async (req, res) => {
     if (rows.length === 0) return res.status(404).json({ error: "Record not found" });
 
     const total = rows[0].total_revenue;
-
     await pool.execute(
       'UPDATE sales SET amount_paid = ?, payment_method = "Cash (Settled)" WHERE id = ? AND tenant_id = ?',
       [total, id, req.tenant_id]
     );
-
     res.json({ success: true, message: "Balance settled successfully" });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -418,7 +366,6 @@ app.post('/api/sales/:id/return', async (req, res) => {
 
     const valuePerUnit = originalRevenue / originalQty;
     const returnedValuation = valuePerUnit * qtyToCompare;
-
     const currentOutstanding = originalRevenue - amountPaid - amountRefundedSoFar;
     
     let refundCashAmount = 0;
@@ -485,6 +432,42 @@ app.post('/api/sales/:id/return', async (req, res) => {
     res.status(400).json({ error: err.message });
   } finally {
     connection.release();
+  }
+});
+
+// ─────────────────────────────────────────────
+// 💸 MULTI-TENANT EXPENSES LEDGER ENGINE
+// ─────────────────────────────────────────────
+
+// WRITE: Append manual expense debit records
+app.post('/api/expenses', async (req, res) => {
+  const { title, category, amount, notes } = req.body;
+
+  if (!title || !category || !amount || isNaN(amount) || parseFloat(amount) <= 0) {
+    return res.status(400).json({ error: "Title, categorical map index, and positive numerical pricing amount are required." });
+  }
+
+  try {
+    await pool.execute(
+      'INSERT INTO expenses (tenant_id, title, category, amount, notes) VALUES (?, ?, ?, ?, ?)',
+      [req.tenant_id, title, category, Number(amount), notes || null]
+    );
+    res.status(201).json({ success: true, message: "Expense securely filed." });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// READ: Fetch historical localized multi-tenant expense logs
+app.get('/api/expenses', async (req, res) => {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT id, title, category, amount, notes, spent_at FROM expenses WHERE tenant_id = ? ORDER BY spent_at DESC',
+      [req.tenant_id]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

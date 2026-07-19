@@ -4,6 +4,7 @@ import DashboardView from './components/DashboardView';
 import InventoryView from './components/InventoryView';
 import SalesView from './components/SalesView';
 import ReportsView from './components/ReportsView';
+import ExpensesView from './components/ExpensesView'; // 💸 Imported Expenses Engine
 import LoginGate from './components/LoginGate';
 
 export default function App() {
@@ -14,8 +15,10 @@ export default function App() {
   // ⚡ CENTRALIZED INSTANT DATA CACHE STATE LIFTING
   const [products, setProducts] = useState([]);
   const [salesHistory, setSalesHistory] = useState([]);
+  const [expenses, setExpenses] = useState([]); // Cache storage array for local tracking updates
   const [isInventoryLoaded, setIsInventoryLoaded] = useState(false);
   const [isSalesLoaded, setIsSalesLoaded] = useState(false);
+  const [isExpensesLoaded, setIsExpensesLoaded] = useState(false);
 
   const [isDark, setIsDark] = useState(() => {
     const saved = localStorage.getItem('theme');
@@ -55,6 +58,19 @@ export default function App() {
     }
   }, [token, headers]);
 
+  const loadExpenses = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/expenses`, { headers });
+      const data = await res.json();
+      setExpenses(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Expenses cache data layer sink failure:', err);
+    } finally {
+      setIsExpensesLoaded(true);
+    }
+  }, [token, headers]);
+
   // Handle systemic authentication storage states
   const handleLogin = (newToken) => {
     localStorage.setItem('trader_token', newToken);
@@ -67,8 +83,9 @@ export default function App() {
     if (token) {
       loadProducts();
       loadSalesHistory();
+      loadExpenses();
     }
-  }, [token, loadProducts, loadSalesHistory]);
+  }, [token, loadProducts, loadSalesHistory, loadExpenses]);
 
   // Handle theme configurations
   useEffect(() => {
@@ -90,7 +107,18 @@ export default function App() {
   const renderContent = () => {
     switch (activePage) {
       case 'dashboard':
-        return <DashboardView products={products} salesHistory={salesHistory} isLoaded={isInventoryLoaded && isSalesLoaded} />;
+        return (
+          <DashboardView
+            token={token}
+            products={products}
+            salesHistory={salesHistory}
+            expenses={expenses}
+            isLoaded={isInventoryLoaded && isSalesLoaded && isExpensesLoaded}
+            refreshProducts={loadProducts}
+            refreshSales={loadSalesHistory}
+            refreshExpenses={loadExpenses}
+          />
+        );
       case 'inventory':
         return (
           <InventoryView
@@ -113,7 +141,26 @@ export default function App() {
           />
         );
       case 'reports':
-        return <ReportsView salesHistory={salesHistory} isLoaded={isSalesLoaded} refreshReports={loadSalesHistory} token={token} />;
+        return (
+          <ReportsView
+            salesHistory={salesHistory}
+            isLoaded={isSalesLoaded}
+            refreshReports={async () => {
+              await loadProducts();
+              await loadSalesHistory();
+            }}
+            token={token}
+          />
+        );
+      case 'expenses':
+        return (
+          <ExpensesView 
+            token={token}
+            expenses={expenses}
+            isLoaded={isExpensesLoaded}
+            refreshExpenses={loadExpenses}
+          />
+        );
       default:
         return <div className="text-sm font-mono p-6">View index reference context missing.</div>;
     }
