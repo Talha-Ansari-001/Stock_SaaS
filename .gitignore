@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# Environment files - NEVER commit secrets
+backend/.env
+backend/.env.production
+frontend/.env
+frontend/.env.local
+frontend/.env.production
+.env
+.env.local
+.env.production
+.env.*
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor directories
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Scratch / temporary files
+backend/scratch_*.js
