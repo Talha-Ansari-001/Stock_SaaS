@@ -6,7 +6,8 @@ export default function InventoryView({ token, products, isLoaded, refreshInvent
     quantity: '', 
     price: '', 
     buying_price: '', 
-    kg_per_unit: '20', // ⚡ Defaulting to standard 20 Kg bags
+    default_unit: 'Bags',
+    kg_per_unit: '50',
     supplier_name: '' 
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -23,21 +24,45 @@ export default function InventoryView({ token, products, isLoaded, refreshInvent
     'Authorization': `Bearer ${token}`,
   };
 
+  const handleUnitChange = (newUnit) => {
+    if (newUnit === 'Bags') {
+      setForm(prev => ({
+        ...prev,
+        default_unit: newUnit,
+        kg_per_unit: prev.kg_per_unit && prev.kg_per_unit !== '1' ? prev.kg_per_unit : '50'
+      }));
+    } else {
+      setForm(prev => ({
+        ...prev,
+        default_unit: newUnit,
+        kg_per_unit: '1.00'
+      }));
+    }
+  };
+
   const handleAdd = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
     setFormError('');
     setFormSuccess('');
     try {
+      const parsedQty = parseFloat(form.quantity);
+      if (isNaN(parsedQty) || parsedQty < 0) {
+        setFormError('Please provide a valid non-negative quantity.');
+        setIsSubmitting(false);
+        return;
+      }
+
       const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/products`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
           name: form.name,
-          quantity: parseInt(form.quantity, 10),
+          quantity: parsedQty,
           price: parseFloat(form.price),
           buying_price: parseFloat(form.buying_price),
-          kg_per_unit: parseFloat(form.kg_per_unit) || 1.00, // ⚡ Pass conversions down cleanly
+          default_unit: form.default_unit,
+          kg_per_unit: form.default_unit === 'Bags' ? (parseFloat(form.kg_per_unit) || 50.00) : 1.00,
           supplier_name: form.supplier_name || null
         }),
       });
@@ -46,10 +71,17 @@ export default function InventoryView({ token, products, isLoaded, refreshInvent
         setFormError(data.error || 'Failed to add product. Please try again.');
         return;
       }
-      setForm({ name: '', quantity: '', price: '', buying_price: '', kg_per_unit: '20', supplier_name: '' });
+      setForm({ 
+        name: '', 
+        quantity: '', 
+        price: '', 
+        buying_price: '', 
+        default_unit: 'Bags',
+        kg_per_unit: '50', 
+        supplier_name: '' 
+      });
       setFormSuccess('Product provisioned successfully!');
       setTimeout(() => setFormSuccess(''), 3000);
-      // Silent background cache sync update
       if (refreshInventory) await refreshInventory();
     } catch (err) {
       console.error('Provision commit failure:', err);
@@ -83,9 +115,11 @@ export default function InventoryView({ token, products, isLoaded, refreshInvent
     }
   };
 
+  const isBags = form.default_unit === 'Bags';
+
   return (
     <div className="space-y-6 md:space-y-10 animate-fade-in">
-      {/* Header and overview stat summary */}
+      {/* Header */}
       <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border-subtle/40 pb-6">
         <div className="space-y-1 text-left">
           <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-text-primary font-sans">
@@ -97,10 +131,10 @@ export default function InventoryView({ token, products, isLoaded, refreshInvent
         </div>
       </header>
 
-      {/* Grid Layout splits forms and listings */}
+      {/* Grid Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8 items-start">
         
-        {/* ADD INVENTORY FORM PANELS */}
+        {/* ADD INVENTORY FORM PANEL */}
         <form
           onSubmit={handleAdd}
           className="bg-panel border border-border-subtle rounded-xl p-5 md:p-6 space-y-5 shadow-xs text-left"
@@ -115,11 +149,11 @@ export default function InventoryView({ token, products, isLoaded, refreshInvent
               <label className="text-xs tracking-tight text-text-muted font-sans block">Product Name / Label</label>
               <input
                 type="text"
-                placeholder="e.g. Sand - 20kg Bag"
+                placeholder="e.g. Sand (Reti) or Ambuja Cement"
                 required
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
-                className="w-full bg-surface border border-border-subtle focus:border-zinc-500 dark:focus:border-zinc-400 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
+                className="w-full bg-surface border border-border-subtle focus:border-zinc-500 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
               />
             </div>
 
@@ -131,41 +165,71 @@ export default function InventoryView({ token, products, isLoaded, refreshInvent
                 placeholder="e.g. Trader A"
                 value={form.supplier_name}
                 onChange={(e) => setForm({ ...form, supplier_name: e.target.value })}
-                className="w-full bg-surface border border-border-subtle focus:border-zinc-500 dark:focus:border-zinc-400 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
+                className="w-full bg-surface border border-border-subtle focus:border-zinc-500 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
               />
             </div>
 
-            {/* Units Quantity & Conversion Ratio */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-xs tracking-tight text-text-muted font-sans block">Bags Quantity</label>
-                <input
-                  type="number"
-                  placeholder="e.g. 10"
-                  required
-                  min="0"
-                  value={form.quantity}
-                  onChange={(e) => setForm({ ...form, quantity: e.target.value })}
-                  className="w-full bg-surface border border-border-subtle focus:border-zinc-500 dark:focus:border-zinc-400 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs tracking-tight text-text-muted font-sans block">Kg Per Unit</label>
-                <input
-                  type="number"
-                  placeholder="e.g. 20"
-                  required
-                  min="1"
-                  step="0.01"
-                  value={form.kg_per_unit}
-                  onChange={(e) => setForm({ ...form, kg_per_unit: e.target.value })}
-                  className="w-full bg-surface border border-border-subtle focus:border-zinc-500 dark:focus:border-zinc-400 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
-                />
-              </div>
+            {/* Unit Type Selection Dropdown */}
+            <div className="space-y-1.5">
+              <label className="text-xs tracking-tight text-text-muted font-sans block">Unit Type</label>
+              <select
+                value={form.default_unit}
+                onChange={(e) => handleUnitChange(e.target.value)}
+                className="w-full bg-surface border border-border-subtle focus:border-zinc-500 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono outline-none cursor-pointer"
+              >
+                <option value="Bags">Bags (Cement)</option>
+                <option value="Baraas">Baraas (Sand/Reti, Khadi, Bhusa)</option>
+                <option value="Piece">Piece (Bricks/Blocks)</option>
+                <option value="Pack">Pack (Chemicals/Fixit)</option>
+              </select>
             </div>
 
-            {/* Financial valuations (Selling Price & Cost Buying Rate) */}
+            {/* Dynamic Inputs: Quantity and Kg Per Unit */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs tracking-tight text-text-muted font-sans block">
+                  {isBags ? "Bags Quantity" : "Total Units / Quantity (e.g. 0.5, 1, 10)"}
+                </label>
+                <input
+                  type="number"
+                  placeholder={isBags ? "e.g. 100" : "e.g. 0.5 or 5"}
+                  required
+                  min="0"
+                  step="0.01"
+                  value={form.quantity}
+                  onChange={(e) => setForm({ ...form, quantity: e.target.value })}
+                  className="w-full bg-surface border border-border-subtle focus:border-zinc-500 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
+                />
+              </div>
+
+              {isBags ? (
+                <div className="space-y-1.5">
+                  <label className="text-xs tracking-tight text-text-muted font-sans block">Kg Per Unit</label>
+                  <input
+                    type="number"
+                    placeholder="e.g. 50"
+                    required
+                    min="1"
+                    step="0.01"
+                    value={form.kg_per_unit}
+                    onChange={(e) => setForm({ ...form, kg_per_unit: e.target.value })}
+                    className="w-full bg-surface border border-border-subtle focus:border-zinc-500 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
+                  />
+                </div>
+              ) : (
+                <div className="space-y-1.5 opacity-50">
+                  <label className="text-xs tracking-tight text-text-muted font-sans block">Kg Per Unit</label>
+                  <input
+                    type="text"
+                    disabled
+                    value="N/A (1.00)"
+                    className="w-full bg-surface/50 border border-border-subtle rounded-lg px-4 py-3 text-sm text-text-muted font-mono cursor-not-allowed outline-none"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Pricing */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <label className="text-xs tracking-tight text-text-muted font-sans block">Cost (Buy Price)</label>
@@ -177,7 +241,7 @@ export default function InventoryView({ token, products, isLoaded, refreshInvent
                   step="0.01"
                   value={form.buying_price}
                   onChange={(e) => setForm({ ...form, buying_price: e.target.value })}
-                  className="w-full bg-surface border border-border-subtle focus:border-zinc-500 dark:focus:border-zinc-400 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
+                  className="w-full bg-surface border border-border-subtle focus:border-zinc-500 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
                 />
               </div>
 
@@ -191,13 +255,13 @@ export default function InventoryView({ token, products, isLoaded, refreshInvent
                   step="0.01"
                   value={form.price}
                   onChange={(e) => setForm({ ...form, price: e.target.value })}
-                  className="w-full bg-surface border border-border-subtle focus:border-zinc-500 dark:focus:border-zinc-400 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
+                  className="w-full bg-surface border border-border-subtle focus:border-zinc-500 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
                 />
               </div>
             </div>
           </div>
 
-          {/* Error / Success feedback */}
+          {/* Feedback */}
           {formError && (
             <div className="text-xs font-mono text-red-500 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
               ✕ {formError}
@@ -218,7 +282,7 @@ export default function InventoryView({ token, products, isLoaded, refreshInvent
           </button>
         </form>
 
-        {/* INVENTORY REGISTRY DISPLAY TABULAR SYSTEM */}
+        {/* TABLE DISPLAY */}
         <div className="lg:col-span-2 bg-panel border border-border-subtle rounded-xl shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-left">
@@ -247,9 +311,11 @@ export default function InventoryView({ token, products, isLoaded, refreshInvent
                   </tr>
                 ) : (
                   products.map((p) => {
-                    const quantity = p.quantity !== undefined ? p.quantity : p.stock || 0;
+                    const quantity = parseFloat(p.quantity !== undefined ? p.quantity : p.stock || 0);
+                    const unit = p.default_unit || 'Bags';
+                    const isBagsUnit = unit === 'Bags';
                     const kgPerUnit = parseFloat(p.kg_per_unit) || 1.00;
-                    const totalWeight = (quantity * kgPerUnit).toFixed(2);
+                    const totalWeight = isBagsUnit ? (quantity * kgPerUnit).toFixed(2) : null;
                     
                     return (
                       <tr key={p.id} className="hover:bg-surface/30 transition-colors duration-150">
@@ -260,12 +326,20 @@ export default function InventoryView({ token, products, isLoaded, refreshInvent
                           )}
                         </td>
                         <td className="px-4 py-4 text-text-primary">
-                          <span className="font-semibold">{Number(quantity).toFixed(2)}</span>
-                          <span className="text-[10px] text-text-muted ml-1">Bags ({kgPerUnit} Kg/ea)</span>
+                          <span className="font-semibold">{quantity.toFixed(2)}</span>
+                          <span className="text-[10px] text-text-muted ml-1">
+                            {unit} {isBagsUnit ? `(${kgPerUnit} Kg/ea)` : ''}
+                          </span>
                         </td>
                         <td className="px-4 py-4 text-text-secondary">₹{parseFloat(p.buying_price || 0).toLocaleString()}</td>
                         <td className="px-4 py-4 text-text-primary font-semibold">₹{parseFloat(p.price || 0).toLocaleString()}</td>
-                        <td className="px-4 py-4 text-emerald-500 font-semibold">{totalWeight} Kg</td>
+                        <td className="px-4 py-4 font-semibold">
+                          {isBagsUnit ? (
+                            <span className="text-emerald-500">{totalWeight} Kg</span>
+                          ) : (
+                            <span className="text-text-muted text-xs">—</span>
+                          )}
+                        </td>
                         <td className="px-4 py-4 text-right">
                           <button
                             onClick={() => setDeleteTarget(p)}

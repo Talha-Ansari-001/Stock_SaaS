@@ -16,7 +16,9 @@ const formatSaleTimestamp = (dateStr) => {
 
 const formatCurrency = (val) => {
   const num = parseFloat(val || 0);
-  return num % 1 === 0 ? `₹${num.toFixed(0)}` : `₹${num.toFixed(2)}`;
+  return num % 1 === 0 
+    ? `₹${num.toLocaleString('en-IN')}` 
+    : `₹${num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
 export default function TraderDashboard({ 
@@ -129,24 +131,8 @@ export default function TraderDashboard({
     }
   };
 
-  const handleLogSale = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/sales`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(newSale)
-      });
-      const data = await res.json();
-      if (data.error) {
-        alert(data.error);
-      } else {
-        setNewSale({ product_id: '', quantity_to_sell: '' });
-        await triggerRefresh();
-      }
-    } catch (err) {
-      alert("Failed to execute deductive sale transaction.");
-    }
+  const handleSaleComplete = async () => {
+    await triggerRefresh();
   };
 
   // 🧮 FIXED ARITHMETIC METRICS MATRIX (IMPROVED ACCURACY)

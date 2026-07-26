@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import DashboardView from './components/DashboardView';
 import InventoryView from './components/InventoryView';
+import SalesTerminal from './components/SalesTerminal';
 import SalesView from './components/SalesView';
 import ReportsView from './components/ReportsView';
 import ExpensesView from './components/ExpensesView'; // 💸 Imported Expenses Engine
@@ -130,11 +131,11 @@ export default function App() {
         );
       case 'sales':
         return (
-          <SalesView
+          <SalesTerminal
             token={token}
             products={products}
             isLoaded={isInventoryLoaded}
-            refreshInventory={async () => {
+            onSaleComplete={async () => {
               await loadProducts();
               await loadSalesHistory();
             }}

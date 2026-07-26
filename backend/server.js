@@ -160,23 +160,32 @@ app.get('/api/products', async (req, res) => {
 
 // INVENTORY: Add new product / replenish quantity
 app.post('/api/products', async (req, res) => {
-  const { name, quantity, price, buying_price, kg_per_unit, supplier_name } = req.body;
+  const { name, quantity, price, buying_price, kg_per_unit, default_unit, allowed_units, supplier_name } = req.body;
 
-  if (!name || quantity === undefined || !price || !buying_price) {
+  if (!name || quantity === undefined || price === undefined || buying_price === undefined) {
     return res.status(400).json({ error: "Missing required fields" });
   }
+
+  const parsedQty = parseFloat(quantity);
+  if (isNaN(parsedQty)) {
+    return res.status(400).json({ error: "Quantity must be a valid number." });
+  }
+
+  const safeKgPerUnit = parseFloat(kg_per_unit) && parseFloat(kg_per_unit) > 0 ? parseFloat(kg_per_unit) : 1.00;
+  const safeDefaultUnit = default_unit || 'Piece';
+  const safeAllowedUnits = allowed_units || 'Piece';
 
   try {
     const [existing] = await pool.execute('SELECT id FROM products WHERE name = ? AND tenant_id = ?', [name, req.tenant_id]);
     if (existing.length > 0) {
       await pool.execute(
-        'UPDATE products SET quantity = quantity + ?, price = ?, buying_price = ?, kg_per_unit = ?, supplier_name = ? WHERE id = ? AND tenant_id = ?',
-        [Number(quantity), Number(price), Number(buying_price), Number(kg_per_unit || 1.00), supplier_name || null, existing[0].id, req.tenant_id]
+        'UPDATE products SET quantity = quantity + ?, price = ?, buying_price = ?, kg_per_unit = ?, default_unit = ?, allowed_units = ?, supplier_name = ? WHERE id = ? AND tenant_id = ?',
+        [parsedQty, Number(price), Number(buying_price), safeKgPerUnit, safeDefaultUnit, safeAllowedUnits, supplier_name || null, existing[0].id, req.tenant_id]
       );
     } else {
       await pool.execute(
-        'INSERT INTO products (tenant_id, name, quantity, price, buying_price, kg_per_unit, supplier_name) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [req.tenant_id, name, Number(quantity), Number(price), Number(buying_price), Number(kg_per_unit || 1.00), supplier_name || null]
+        'INSERT INTO products (tenant_id, name, quantity, price, buying_price, kg_per_unit, default_unit, allowed_units, supplier_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [req.tenant_id, name, parsedQty, Number(price), Number(buying_price), safeKgPerUnit, safeDefaultUnit, safeAllowedUnits, supplier_name || null]
       );
     }
     res.status(201).json({ success: true, message: "Inventory updated successfully" });
@@ -220,9 +229,9 @@ app.post('/api/sales', async (req, res) => {
       total_revenue = parseFloat(product.price) * inputQty;
     }
 
-    if (product.quantity < unitsToDeduct) {
-      const availableKg = (product.quantity * kgPerUnit).toFixed(1);
-      throw new Error(`Insufficient Stock level! Only ${Number(product.quantity).toFixed(2)} Bags (${availableKg} Kg) left.`);
+    if (parseFloat(product.quantity) < unitsToDeduct) {
+      const availableKg = (parseFloat(product.quantity) * kgPerUnit).toFixed(2);
+      throw new Error(`Insufficient Stock level! Only ${parseFloat(product.quantity).toFixed(2)} units (${availableKg} Kg) left.`);
     }
 
     await connection.execute(
@@ -234,7 +243,7 @@ app.post('/api/sales', async (req, res) => {
 
     await connection.execute(
       'INSERT INTO sales (tenant_id, product_id, quantity_sold, total_revenue, amount_paid, buyer_name, buyer_contact, quantity_unit, payment_method) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [req.tenant_id, product_id, inputQty, total_revenue, finalAmountPaid, buyer_name || null, buyer_contact || null, quantity_unit || 'Kg', payment_method || 'Cash']
+      [req.tenant_id, product_id, inputQty, total_revenue, finalAmountPaid, buyer_name || null, buyer_contact || null, quantity_unit || 'Piece', payment_method || 'Cash']
     );
 
     await connection.commit();
@@ -242,6 +251,121 @@ app.post('/api/sales', async (req, res) => {
   } catch (err) {
     await connection.rollback();
     res.status(400).json({ error: err.message });
+  } finally {
+    connection.release();
+  }
+});
+
+// ─────────────────────────────────────────────
+// 🛒 MULTI-ITEM CART: Point-of-Sale Transaction Engine
+// ─────────────────────────────────────────────
+
+/**
+ * POST /api/sales/multi
+ * Processes a full cart checkout as a single atomic database transaction.
+ */
+app.post('/api/sales/multi', async (req, res) => {
+  const { buyer_name, contact_number, payment_method, total_amount, items } = req.body;
+
+  // ── Input validation ───────────────────────────────────────────────────────
+  if (!buyer_name || typeof buyer_name !== 'string' || buyer_name.trim() === '') {
+    return res.status(400).json({ error: "buyer_name is required and must be a non-empty string." });
+  }
+  if (!contact_number || typeof contact_number !== 'string' || contact_number.trim() === '') {
+    return res.status(400).json({ error: "contact_number is required and must be a non-empty string." });
+  }
+  if (!payment_method || !['Cash', 'Online', 'Credit / Unpaid', 'Credit', 'Unpaid'].includes(payment_method)) {
+    return res.status(400).json({ error: "payment_method must be 'Cash', 'Online', or 'Credit / Unpaid'." });
+  }
+  if (total_amount === undefined || isNaN(Number(total_amount)) || Number(total_amount) < 0) {
+    return res.status(400).json({ error: "total_amount must be a valid non-negative number." });
+  }
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: "items must be a non-empty array of cart line items." });
+  }
+
+  // Validate each cart line item
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (!item.product_id || isNaN(Number(item.product_id))) {
+      return res.status(400).json({ error: `items[${i}].product_id is missing or invalid.` });
+    }
+    if (item.quantity === undefined || isNaN(parseFloat(item.quantity)) || parseFloat(item.quantity) <= 0) {
+      return res.status(400).json({ error: `items[${i}].quantity must be a positive number.` });
+    }
+    if (item.unit_price === undefined || isNaN(Number(item.unit_price)) || Number(item.unit_price) < 0) {
+      return res.status(400).json({ error: `items[${i}].unit_price must be a valid non-negative number.` });
+    }
+    if (item.subtotal === undefined || isNaN(Number(item.subtotal)) || Number(item.subtotal) < 0) {
+      return res.status(400).json({ error: `items[${i}].subtotal must be a valid non-negative number.` });
+    }
+  }
+
+  const connection = await pool.getConnection();
+
+  try {
+    // ── Step 3: Begin atomic transaction ──────────────────────────────────────
+    await connection.beginTransaction();
+
+    // ── Step 4: Insert master order record ────────────────────────────────────
+    const [orderResult] = await connection.execute(
+      `INSERT INTO orders (tenant_id, buyer_name, contact_number, payment_method, total_amount, created_at)
+       VALUES (?, ?, ?, ?, ?, NOW())`,
+      [req.tenant_id, buyer_name.trim(), contact_number.trim(), payment_method, Number(total_amount)]
+    );
+
+    const order_id = orderResult.insertId;
+
+    // ── Step 5: Process each cart line item ───────────────────────────────────
+    for (const item of items) {
+      const productId  = Number(item.product_id);
+      const qty        = parseFloat(item.quantity);
+      const unitPrice  = Number(item.unit_price);
+      const subtotal   = Number(item.subtotal);
+
+      // 5a. Deduct stock — the WHERE guard prevents overselling
+      const [stockResult] = await connection.execute(
+        `UPDATE products
+            SET quantity = quantity - ?
+          WHERE id = ?
+            AND tenant_id = ?
+            AND quantity >= ?`,
+        [qty, productId, req.tenant_id, qty]
+      );
+
+      if (stockResult.affectedRows === 0) {
+        // Either product not found for this tenant, or insufficient stock
+        const [productRows] = await connection.execute(
+          'SELECT name, quantity FROM products WHERE id = ? AND tenant_id = ?',
+          [productId, req.tenant_id]
+        );
+        if (productRows.length === 0) {
+          throw new Error(`Product ID ${productId} was not found in your inventory.`);
+        }
+        const p = productRows[0];
+        throw new Error(
+          `Insufficient stock for "${p.name}". ` +
+          `Requested: ${qty}, Available: ${parseFloat(p.quantity).toFixed(2)}.`
+        );
+      }
+
+      // 5b. Insert individual sale row linked to the order
+      await connection.execute(
+        `INSERT INTO sales
+           (tenant_id, order_id, product_id, quantity_sold, total_revenue, payment_method, sold_at)
+         VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+        [req.tenant_id, order_id, productId, qty, subtotal, payment_method]
+      );
+    }
+
+    // ── Step 7: Commit on full success ────────────────────────────────────────
+    await connection.commit();
+    res.status(201).json({ success: true, order_id });
+
+  } catch (err) {
+    // ── Step 6: Rollback on any failure ──────────────────────────────────────
+    await connection.rollback();
+    res.status(500).json({ error: err.message });
   } finally {
     connection.release();
   }

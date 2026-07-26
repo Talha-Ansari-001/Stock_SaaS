@@ -191,18 +191,39 @@ export default function ReportsView({ salesHistory = [], isLoaded = false, refre
                 const isCreditRelated = log.payment_method?.toLowerCase().includes('credit') || log.payment_method?.toLowerCase().includes('partial');
                 const collectionGap = parseFloat(log.total_revenue || 0) - parseFloat(log.amount_paid || 0) - parseFloat(log.amount_refunded || 0);
                 const currentQtySold = parseFloat(log.quantity_sold || 0) - parseFloat(log.quantity_returned || 0);
+                const isUnpaid = collectionGap > 0;
 
                 return (
-                  <div key={log.id} className="flex flex-col border-b border-zinc-100 dark:border-zinc-800/60 transition-colors hover:bg-zinc-50 dark:hover:bg-white/5">
+                  <div 
+                    key={log.id} 
+                    className={`flex flex-col border-b transition-colors ${
+                      isUnpaid 
+                        ? 'bg-red-500/10 dark:bg-red-950/30 border-red-200 dark:border-red-900/50 hover:bg-red-500/15 dark:hover:bg-red-950/40' 
+                        : 'border-zinc-100 dark:border-zinc-800/60 hover:bg-zinc-50 dark:hover:bg-white/5'
+                    }`}
+                  >
                     
                     {/* Primary Row Content Layout */}
                     <div className="flex items-center justify-between p-5">
                       <div className="flex flex-col gap-1 text-left">
-                        <span className="text-sm font-medium text-zinc-900 dark:text-white tracking-tight">{log.product_name || 'Unknown Item'}</span>
-                        <span className="text-xs font-mono text-zinc-500">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-sm font-medium tracking-tight ${isUnpaid ? 'text-red-700 dark:text-red-300 font-semibold' : 'text-zinc-900 dark:text-white'}`}>
+                            {log.product_name || 'Unknown Item'}
+                          </span>
+                          {isUnpaid && (
+                            <span className="text-[9px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-red-500 text-white shadow-sm">
+                              UNPAID
+                            </span>
+                          )}
+                        </div>
+                        <span className={`text-xs font-mono ${isUnpaid ? 'text-red-600/80 dark:text-red-400/80' : 'text-zinc-500'}`}>
                           {log.sold_at ? new Date(log.sold_at).toLocaleString('en-US', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
                         </span>
-                        {log.buyer_name && <span className="text-xs font-sans text-zinc-400">{log.buyer_name} · {log.buyer_contact || 'No contact'}</span>}
+                        {log.buyer_name && (
+                          <span className={`text-xs font-sans ${isUnpaid ? 'text-red-700/80 dark:text-red-300/80 font-medium' : 'text-zinc-400'}`}>
+                            {log.buyer_name} · {log.buyer_contact || 'No contact'}
+                          </span>
+                        )}
                         {parseFloat(log.quantity_returned || 0) > 0 && (
                           <span className="text-[10px] font-mono text-red-500 font-medium">
                             Returned: {parseFloat(log.quantity_returned).toFixed(2)} {log.quantity_unit}
@@ -212,23 +233,23 @@ export default function ReportsView({ salesHistory = [], isLoaded = false, refre
                       
                       <div className="flex items-center gap-6">
                         <div className="text-right hidden sm:flex flex-col items-end justify-center">
-                          <span className="text-xs font-sans text-zinc-500">
+                          <span className={`text-xs font-sans ${isUnpaid ? 'text-red-700/80 dark:text-red-300/80' : 'text-zinc-500'}`}>
                             {currentQtySold.toFixed(2)} {log.quantity_unit || 'units'} sold
                           </span>
                           
                           <div className="flex items-center gap-2 mt-1">
                             {isCreditRelated && collectionGap > 0 && (
                               <>
-                                <span className="text-[9px] font-mono font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                                <span className="text-[9px] font-mono font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-red-600 text-white">
                                   Due: ₹{collectionGap.toFixed(2)}
                                 </span>
                                 <button 
                                   onClick={() => handleSettlePayment(log.id)}
-                                  className="text-[10px] font-mono text-zinc-400 hover:text-emerald-500 underline cursor-pointer"
+                                  className="text-[10px] font-mono text-red-700 dark:text-red-400 hover:underline font-bold cursor-pointer"
                                 >
                                   Settle Balance
                                 </button>
-                                <span className="text-zinc-300 dark:text-zinc-700 text-xs">·</span>
+                                <span className="text-red-300 dark:text-red-700 text-xs">·</span>
                               </>
                             )}
                             
@@ -239,7 +260,7 @@ export default function ReportsView({ salesHistory = [], isLoaded = false, refre
                                   setActiveReturnId(activeReturnId === log.id ? null : log.id);
                                   setReturnQty('');
                                 }}
-                                className="text-[10px] font-mono text-zinc-400 hover:text-red-500 underline cursor-pointer"
+                                className={`text-[10px] font-mono underline cursor-pointer ${isUnpaid ? 'text-red-600 dark:text-red-400 hover:text-red-800' : 'text-zinc-400 hover:text-red-500'}`}
                               >
                                 {activeReturnId === log.id ? 'Cancel' : 'Return Items'}
                               </button>
@@ -248,7 +269,7 @@ export default function ReportsView({ salesHistory = [], isLoaded = false, refre
                         </div>
                         
                         <div className="flex flex-col items-end justify-center">
-                          <span className={`px-2.5 py-1 rounded-md font-mono text-sm font-medium ${isCreditRelated ? 'bg-amber-500/10 text-amber-500' : 'bg-[#10b981]/10 text-[#10b981]'}`}>
+                          <span className={`px-2.5 py-1 rounded-md font-mono text-sm font-medium ${isUnpaid ? 'bg-red-600 text-white font-bold shadow-sm' : 'bg-[#10b981]/10 text-[#10b981]'}`}>
                             ₹{(parseFloat(log.total_revenue || 0) - parseFloat(log.amount_refunded || 0)).toFixed(2)}
                           </span>
                           {parseFloat(log.amount_refunded || 0) > 0 && (
