@@ -16,12 +16,12 @@ const formatSaleTimestamp = (dateStr) => {
 
 const formatCurrency = (val) => {
   const num = parseFloat(val || 0);
-  return num % 1 === 0 
-    ? `₹${num.toLocaleString('en-IN')}` 
+  return num % 1 === 0
+    ? `₹${num.toLocaleString('en-IN')}`
     : `₹${num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
-export default function TraderDashboard({ 
+export default function TraderDashboard({
   token,
   products: propProducts,
   salesHistory: propSalesHistory,
@@ -31,7 +31,7 @@ export default function TraderDashboard({
   refreshSales,
   refreshExpenses
 }) {
-  
+
   const [localProducts, setLocalProducts] = useState([]);
   const [localSalesHistory, setLocalSalesHistory] = useState([]);
   const [localExpenses, setLocalExpenses] = useState([]);
@@ -43,7 +43,7 @@ export default function TraderDashboard({
   const expenses = propExpenses !== undefined ? propExpenses : localExpenses;
   const loading = propProducts !== undefined ? !isLoaded : localLoading;
   const error = localError;
-  
+
   // Form States
   const [newProduct, setNewProduct] = useState({ name: '', quantity: '', price: '' });
   const [newSale, setNewSale] = useState({ product_id: '', quantity_to_sell: '' });
@@ -67,10 +67,10 @@ export default function TraderDashboard({
 
       if (!prodRes.ok) throw new Error(`Products server fault: ${prodRes.status}`);
       if (!salesRes.ok) throw new Error(`Sales server fault: ${salesRes.status}`);
-      
+
       const prodData = await prodRes.json();
       const salesData = await salesRes.json();
-      
+
       setLocalProducts(Array.isArray(prodData) ? prodData : []);
       setLocalSalesHistory(Array.isArray(salesData) ? salesData : []);
 
@@ -136,7 +136,7 @@ export default function TraderDashboard({
   };
 
   // 🧮 FIXED ARITHMETIC METRICS MATRIX (IMPROVED ACCURACY)
-  
+
   // 1. Total Billed (Net Billed Revenue = total_revenue - amount_refunded)
   const totalBilled = salesHistory.reduce((acc, sale) => {
     const rev = parseFloat(sale.total_revenue || 0);
@@ -148,7 +148,7 @@ export default function TraderDashboard({
   const receivedCash = salesHistory.reduce((acc, sale) => {
     return acc + parseFloat(sale.amount_paid || 0);
   }, 0);
-  
+
   // 3. Dues Pending (Calculated per-sale to ensure accuracy: Max(0, total - paid - refunded))
   const duesPending = salesHistory.reduce((acc, sale) => {
     const total = parseFloat(sale.total_revenue || 0);
@@ -167,7 +167,7 @@ export default function TraderDashboard({
       const qtySold = parseFloat(sale.quantity_sold || 0);
       const qtyReturned = parseFloat(sale.quantity_returned || 0);
       const netQty = Math.max(0, qtySold - qtyReturned);
-      
+
       const bagsSold = sale.quantity_unit === 'Kg' ? (netQty / kgPerUnit) : netQty;
       const cogs = bagsSold * buyingPrice;
       return acc + cogs;
@@ -335,7 +335,7 @@ export default function TraderDashboard({
           <div>
             <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 font-sans">Top Products</h2>
             <p className="text-xs text-zinc-400 dark:text-zinc-500 font-mono lowercase mb-6">by revenue generated</p>
-            
+
             <div className="space-y-4">
               {topProducts.length === 0 ? (
                 <div className="text-xs text-zinc-400 dark:text-zinc-500 font-mono italic py-4">No revenue generated yet.</div>
@@ -351,8 +351,8 @@ export default function TraderDashboard({
                         </span>
                       </div>
                       <div className="w-full bg-zinc-100 dark:bg-zinc-800 h-2 rounded-full overflow-hidden">
-                        <div 
-                          className="bg-emerald-500 h-full rounded-full transition-all duration-500" 
+                        <div
+                          className="bg-emerald-500 h-full rounded-full transition-all duration-500"
                           style={{ width: `${percentage}%` }}
                         />
                       </div>
@@ -369,7 +369,7 @@ export default function TraderDashboard({
           <div>
             <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 font-sans">Recent Transactions</h2>
             <p className="text-xs text-zinc-400 dark:text-zinc-500 font-mono lowercase mb-6">last 3 sales</p>
-            
+
             <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {salesHistory.length === 0 ? (
                 <div className="text-xs text-zinc-400 dark:text-zinc-500 font-mono italic py-4">No recent sales recorded.</div>
@@ -393,7 +393,7 @@ export default function TraderDashboard({
         </div>
       </div>
 
-      {/* 📊 BOTTOM INVENTORY SNAPSHOT CARD */}
+      {/* 📊 BOTTOM INVENTORY SNAPSHOT CARD
       <div className="bg-white dark:bg-[#121214] border border-zinc-200 dark:border-[#1f1f23] rounded-xl shadow-sm p-6 text-left">
         <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 font-sans">Inventory Snapshot</h2>
         <p className="text-xs text-zinc-400 dark:text-zinc-500 font-mono lowercase mb-6">current stock levels</p>
@@ -453,7 +453,7 @@ export default function TraderDashboard({
             </tbody>
           </table>
         </div>
-      </div>
+      </div>*/}
     </div>
   );
 }

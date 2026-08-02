@@ -15,8 +15,19 @@ const getProductUnitConfig = (product = {}) => {
     };
   }
 
-  // 2. Sand (Reti), Khadi, Bhusa: Unit Baraas. Supports decimal inputs (0.5, 1.0, 1.5 Tempo loads). kg_per_unit defaults to 1.00.
-  if (name.includes('reti') || name.includes('sand') || name.includes('khadi') || name.includes('bhusa')) {
+  // 2. Sand (Reti): Default unit Bags. Supports Bags and Kg (50 Kg = 1 Bag by default, configurable via kg_per_unit).
+  //    Sold by the bag (e.g. 20 kg / 50 kg bags) or by Kg. Stock is stored in Bags.
+  if (name.includes('reti') || name.includes('sand')) {
+    return {
+      allowedUnits: ['Bags', 'Kg'],
+      defaultUnit: defaultUnitFromDb || 'Bags',
+      kgPerUnit: parseFloat(product.kg_per_unit) || 50,
+      isSand: true
+    };
+  }
+
+  // 3. Khadi, Bhusa: Unit Baraas. Supports decimal inputs (0.5, 1.0, 1.5 Tempo loads).
+  if (name.includes('khadi') || name.includes('bhusa')) {
     return {
       allowedUnits: ['Baraas'],
       defaultUnit: defaultUnitFromDb || 'Baraas',
@@ -25,7 +36,7 @@ const getProductUnitConfig = (product = {}) => {
     };
   }
 
-  // 3. Eita (4" & 6") / AAC Blocks (6" & 8"): Fixed unit Piece.
+  // 4. Eita (4" & 6") / AAC Blocks (6" & 8"): Fixed unit Piece.
   if (name.includes('eita') || name.includes('block') || name.includes('brick')) {
     return {
       allowedUnits: ['Piece'],
@@ -34,7 +45,7 @@ const getProductUnitConfig = (product = {}) => {
     };
   }
 
-  // 4. Dr. Fixit (1L & 5L) / White Cement (1kg & 5kg): Fixed unit Pack or Piece.
+  // 5. Dr. Fixit (1L & 5L) / White Cement (1kg & 5kg): Fixed unit Pack or Piece.
   if (name.includes('fixit') || name.includes('white cement')) {
     return {
       allowedUnits: ['Pack', 'Piece'],
@@ -60,6 +71,8 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
   const [buyerName, setBuyerName] = useState('');
   const [contactNumber, setContactNumber] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('Cash');
+  const [includeTransport, setIncludeTransport] = useState(false);
+  const [advancePayment, setAdvancePayment] = useState('');
 
   // Current item inputs
   const [selectedProductId, setSelectedProductId] = useState('');
@@ -98,12 +111,14 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
     let pricePerUnit = parseFloat(product.price || 0) || 0;
     const kgPerUnit = config.kgPerUnit || 50;
 
-    if (config.isCement) {
+    // Both cement and sand use Bags as the base stock unit, with optional Kg input.
+    // When selling in Kg: deduct fractional bags and recalculate unit price to ₹/Kg.
+    if (config.isCement || config.isSand) {
       if (quantityUnit === 'Kg') {
-        unitsToDeduct = inputQty / kgPerUnit;
-        pricePerUnit = pricePerUnit / kgPerUnit; // price per kg
+        unitsToDeduct = inputQty / kgPerUnit;   // convert Kg → Bags for stock deduction
+        pricePerUnit = pricePerUnit / kgPerUnit; // convert ₹/Bag → ₹/Kg
       } else {
-        unitsToDeduct = inputQty; // Bags
+        unitsToDeduct = inputQty; // already in Bags
       }
     } else {
       unitsToDeduct = inputQty;
@@ -170,20 +185,51 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
     setCart(prev => prev.filter((_, i) => i !== idx));
   };
 
-  const grandTotal = cart.reduce((sum, item) => sum + (typeof item?.subtotal === 'number' ? item.subtotal : 0), 0);
+  const baseTotal = cart.reduce((sum, item) => sum + (typeof item?.subtotal === 'number' ? item.subtotal : 0), 0);
+  const transportFee = includeTransport ? 200 : 0;
+  const grandTotal = baseTotal + transportFee;
+
+  // --- ADVANCE PAYMENT: Clamped change handler ---
+  const handleAdvanceChange = (e) => {
+    const val = parseFloat(e.target.value) || 0;
+    if (val > grandTotal) {
+      setAdvancePayment(grandTotal);
+    } else if (val < 0) {
+      setAdvancePayment(0);
+    } else {
+      setAdvancePayment(val === 0 && e.target.value === '' ? '' : val);
+    }
+  };
+  const advanceOverLimit = parseFloat(advancePayment) > grandTotal;
 
   const handleCheckout = async () => {
     if (cart.length === 0) return;
     setIsSubmitting(true);
     setFeedback(null);
 
-    const isCreditUnpaid = paymentMethod === 'Credit / Unpaid';
+    const isCredit = paymentMethod === 'Credit / Unpaid';
+    const paidAmt = isCredit ? (parseFloat(advancePayment) || 0) : grandTotal;
+    const dueAmt = Math.max(0, grandTotal - paidAmt);
+    let payStatus = 'Paid';
+    if (isCredit) {
+      if (dueAmt === 0) {
+        payStatus = 'Paid';
+      } else if (paidAmt > 0 && dueAmt > 0) {
+        payStatus = 'Partial';
+      } else if (paidAmt === 0) {
+        payStatus = 'Unpaid';
+      }
+    }
 
     const payload = {
       buyer_name: buyerName || 'Walk-in Customer',
       contact_number: contactNumber || 'N/A',
-      payment_method: isCreditUnpaid ? 'Credit / Unpaid' : paymentMethod,
+      payment_method: isCredit ? 'Credit / Unpaid' : paymentMethod,
+      payment_status: payStatus,
       total_amount: grandTotal,
+      transportation_fee: transportFee,
+      paid_amount: paidAmt,
+      due_amount: dueAmt,
       items: cart.map(item => ({
         product_id: item.product_id,
         quantity: item.unitsToDeduct || 0, 
@@ -218,6 +264,8 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
         setBuyerName('');
         setContactNumber('');
         setPaymentMethod('Cash');
+        setIncludeTransport(false);
+        setAdvancePayment('');
         setSelectedProductId('');
         setQuantity('');
         
@@ -280,33 +328,16 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
                 />
               </div>
             </div>
-            <div className="space-y-1.5 text-left pt-2">
-              <label className="text-xs tracking-tight text-text-muted font-sans block">Payment Method</label>
-              <div className="grid grid-cols-3 gap-2 p-1 bg-surface border border-border-subtle rounded-lg">
-                {['Cash', 'Online', 'Credit / Unpaid'].map(method => {
-                  const isSelected = paymentMethod === method;
-                  const isCredit = method === 'Credit / Unpaid';
-                  
-                  return (
-                    <button
-                      key={method}
-                      type="button"
-                      onClick={() => setPaymentMethod(method)}
-                      className={`py-2 px-1 text-xs font-mono tracking-tight rounded-md transition-all cursor-pointer ${
-                        isSelected 
-                          ? isCredit
-                            ? 'bg-red-500 text-white shadow-xs font-bold'
-                            : 'bg-text-primary text-panel shadow-xs font-semibold' 
-                          : isCredit
-                            ? 'bg-red-500/10 text-red-500 font-medium hover:bg-red-500/20'
-                            : 'text-text-muted hover:text-text-primary hover:bg-surface-hover'
-                      }`}
-                    >
-                      {method}
-                    </button>
-                  );
-                })}
-              </div>
+          <div className="space-y-1.5 text-left pt-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  checked={includeTransport} 
+                  onChange={(e) => setIncludeTransport(e.target.checked)} 
+                  className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900 w-4 h-4 cursor-pointer"
+                />
+                <span className="text-xs tracking-tight text-text-muted font-sans font-medium">Include Transportation (+ ₹200)</span>
+              </label>
             </div>
           </div>
 
@@ -343,8 +374,8 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
                   <input
                     type="number"
                     placeholder="e.g. 0.5, 1, 10"
-                    min="0.001"
-                    step="0.01"
+                    min="0"
+                    step="any"
                     value={quantity}
                     onChange={(e) => setQuantity(e.target.value)}
                     className="flex-1 bg-surface border border-border-subtle focus:border-zinc-500 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
@@ -433,11 +464,108 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
           </div>
 
           <div className="border-t border-border-subtle pt-4 space-y-4 mt-auto">
+            {includeTransport && (
+              <div className="flex justify-between items-center text-sm font-mono text-text-secondary pb-2 border-b border-border-subtle/50">
+                <span>Transportation Fee:</span>
+                <span>₹200.00</span>
+              </div>
+            )}
             <div className="flex justify-between items-center text-lg">
               <span className="font-semibold text-text-primary font-sans">Grand Total:</span>
               <span className="font-mono font-bold text-emerald-500">
                 ₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
+            </div>
+
+            {/* ── Payment Method & Credit Controls (Section 3) ── */}
+            <div className="border border-border-subtle rounded-xl overflow-hidden">
+              <div className="bg-surface px-4 py-2.5 border-b border-border-subtle">
+                <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-muted">Payment Method</p>
+              </div>
+              <div className="p-3">
+                <div className="grid grid-cols-3 gap-2">
+                  {['Cash', 'Online', 'Credit / Unpaid'].map(method => {
+                    const isSelected = paymentMethod === method;
+                    const isCreditOpt = method === 'Credit / Unpaid';
+                    return (
+                      <button
+                        key={method}
+                        type="button"
+                        onClick={() => {
+                          setPaymentMethod(method);
+                          if (method !== 'Credit / Unpaid') setAdvancePayment('');
+                        }}
+                        className={`py-2.5 px-1 text-xs font-mono tracking-tight rounded-lg transition-all cursor-pointer border ${
+                          isSelected
+                            ? isCreditOpt
+                              ? 'bg-red-500 text-white border-red-500 shadow-sm font-bold'
+                              : 'bg-text-primary text-panel border-text-primary shadow-sm font-semibold'
+                            : isCreditOpt
+                              ? 'bg-red-500/8 text-red-500 border-red-200 dark:border-red-900/40 font-medium hover:bg-red-500/15'
+                              : 'text-text-muted border-border-subtle hover:text-text-primary hover:bg-surface-hover'
+                        }`}
+                      >
+                        {method === 'Cash' ? '💵 Cash' : method === 'Online' ? '📲 Online' : '📋 Credit'}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Credit / Unpaid: Advance Payment Input */}
+                {paymentMethod === 'Credit / Unpaid' && (
+                  <div className="mt-4 space-y-3 animate-fade-in">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-text-muted font-sans block">Initial / Advance Paid Amount (₹)</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted font-mono text-sm">₹</span>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          max={grandTotal}
+                          placeholder="0.00"
+                          value={advancePayment}
+                          onChange={handleAdvanceChange}
+                          className={`w-full pl-8 pr-4 py-3 bg-surface border rounded-xl text-sm font-mono text-text-primary placeholder:text-text-muted outline-none transition-all ${
+                            advanceOverLimit
+                              ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-400/20'
+                              : 'border-border-subtle focus:border-zinc-500'
+                          }`}
+                        />
+                      </div>
+                      {advanceOverLimit && (
+                        <p className="text-[11px] font-mono text-red-500 flex items-center gap-1">
+                          ⚠ Advance amount cannot exceed total bill (₹{grandTotal.toFixed(2)})
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Live Paid / Due Breakdown */}
+                    {(() => {
+                      const adv = Math.min(parseFloat(advancePayment) || 0, grandTotal);
+                      const due = Math.max(0, grandTotal - adv);
+                      const status = due === 0 ? 'Paid' : adv > 0 ? 'Partial' : 'Unpaid';
+                      const statusColor = due === 0 ? 'text-emerald-500' : adv > 0 ? 'text-amber-500' : 'text-red-500';
+                      return (
+                        <div className="bg-surface border border-border-subtle rounded-xl p-3 space-y-2">
+                          <div className="flex justify-between items-center text-xs font-mono">
+                            <span className="text-text-muted">Paid Amount:</span>
+                            <span className="text-emerald-500 font-bold">₹{adv.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-xs font-mono">
+                            <span className="text-text-muted">Remaining Due:</span>
+                            <span className={`font-bold ${due > 0 ? 'text-red-500' : 'text-emerald-500'}`}>₹{due.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-xs font-mono border-t border-border-subtle/50 pt-2">
+                            <span className="text-text-muted">Status:</span>
+                            <span className={`font-bold uppercase tracking-wide ${statusColor}`}>{status}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
             </div>
 
             {feedback && (

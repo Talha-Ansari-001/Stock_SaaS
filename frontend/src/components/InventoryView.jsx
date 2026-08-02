@@ -177,8 +177,8 @@ export default function InventoryView({ token, products, isLoaded, refreshInvent
                 onChange={(e) => handleUnitChange(e.target.value)}
                 className="w-full bg-surface border border-border-subtle focus:border-zinc-500 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono outline-none cursor-pointer"
               >
-                <option value="Bags">Bags (Cement)</option>
-                <option value="Baraas">Baraas (Sand/Reti, Khadi, Bhusa)</option>
+                <option value="Bags">Bags (Cement, Sand/Reti)</option>
+                <option value="Baraas">Baraas (Khadi, Bhusa)</option>
                 <option value="Piece">Piece (Bricks/Blocks)</option>
                 <option value="Pack">Pack (Chemicals/Fixit)</option>
               </select>

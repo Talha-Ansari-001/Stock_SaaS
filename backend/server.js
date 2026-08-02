@@ -240,10 +240,18 @@ app.post('/api/sales', async (req, res) => {
     );
 
     const finalAmountPaid = amount_paid !== undefined && amount_paid !== null ? parseFloat(amount_paid) : total_revenue;
+    const paymentStatus = finalAmountPaid >= total_revenue ? 'Paid' : 'Unpaid';
+
+    const [orderResult] = await connection.execute(
+      'INSERT INTO orders (tenant_id, buyer_name, contact_number, payment_method, payment_status, total_amount, transportation_fee, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, NOW())',
+      [req.tenant_id, buyer_name || 'Walk-in Customer', buyer_contact || 'N/A', payment_method || 'Cash', paymentStatus, total_revenue]
+    );
+
+    const orderId = orderResult.insertId;
 
     await connection.execute(
-      'INSERT INTO sales (tenant_id, product_id, quantity_sold, total_revenue, amount_paid, buyer_name, buyer_contact, quantity_unit, payment_method) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [req.tenant_id, product_id, inputQty, total_revenue, finalAmountPaid, buyer_name || null, buyer_contact || null, quantity_unit || 'Piece', payment_method || 'Cash']
+      'INSERT INTO sales (tenant_id, order_id, product_id, quantity_sold, total_revenue, amount_paid, buyer_name, buyer_contact, quantity_unit, payment_method, payment_status, sold_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+      [req.tenant_id, orderId, product_id, inputQty, total_revenue, finalAmountPaid, buyer_name || null, buyer_contact || null, quantity_unit || 'Piece', payment_method || 'Cash', paymentStatus]
     );
 
     await connection.commit();
@@ -265,7 +273,9 @@ app.post('/api/sales', async (req, res) => {
  * Processes a full cart checkout as a single atomic database transaction.
  */
 app.post('/api/sales/multi', async (req, res) => {
-  const { buyer_name, contact_number, payment_method, total_amount, items } = req.body;
+  const { buyer_name, contact_number, payment_method, payment_status, total_amount, transportation_fee, items } = req.body;
+  const transportFee = Number(transportation_fee) || 0;
+  const safePaymentStatus = payment_status || 'Paid';
 
   // ── Input validation ───────────────────────────────────────────────────────
   if (!buyer_name || typeof buyer_name !== 'string' || buyer_name.trim() === '') {
@@ -308,20 +318,31 @@ app.post('/api/sales/multi', async (req, res) => {
     await connection.beginTransaction();
 
     // ── Step 4: Insert master order record ────────────────────────────────────
+    const paidAmount = req.body.paid_amount !== undefined ? Number(req.body.paid_amount) : Number(total_amount);
+    const dueAmount = req.body.due_amount !== undefined ? Number(req.body.due_amount) : 0;
+
     const [orderResult] = await connection.execute(
-      `INSERT INTO orders (tenant_id, buyer_name, contact_number, payment_method, total_amount, created_at)
-       VALUES (?, ?, ?, ?, ?, NOW())`,
-      [req.tenant_id, buyer_name.trim(), contact_number.trim(), payment_method, Number(total_amount)]
+      `INSERT INTO orders (tenant_id, buyer_name, contact_number, payment_method, payment_status, total_amount, transportation_fee, paid_amount, due_amount, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [req.tenant_id, buyer_name.trim(), contact_number.trim(), payment_method, safePaymentStatus, Number(total_amount), transportFee, paidAmount, dueAmount]
     );
 
     const order_id = orderResult.insertId;
 
     // ── Step 5: Process each cart line item ───────────────────────────────────
-    for (const item of items) {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
       const productId  = Number(item.product_id);
       const qty        = parseFloat(item.quantity);
       const unitPrice  = Number(item.unit_price);
       const subtotal   = Number(item.subtotal);
+      
+      const itemTransportFee = i === 0 ? transportFee : 0; // Attach to the first item for ledger visibility
+
+      // Proportional calculation for item paid and due amounts
+      const itemRatio = Number(total_amount) > 0 ? (subtotal / Number(total_amount)) : 0;
+      const itemPaidAmt = paidAmount * itemRatio;
+      const itemDueAmt = subtotal - itemPaidAmt;
 
       // 5a. Deduct stock — the WHERE guard prevents overselling
       const [stockResult] = await connection.execute(
@@ -352,9 +373,9 @@ app.post('/api/sales/multi', async (req, res) => {
       // 5b. Insert individual sale row linked to the order
       await connection.execute(
         `INSERT INTO sales
-           (tenant_id, order_id, product_id, quantity_sold, total_revenue, payment_method, sold_at)
-         VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-        [req.tenant_id, order_id, productId, qty, subtotal, payment_method]
+           (tenant_id, order_id, product_id, quantity_sold, total_revenue, payment_method, payment_status, transportation_fee, paid_amount, due_amount, sold_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [req.tenant_id, order_id, productId, qty, subtotal, payment_method, safePaymentStatus, itemTransportFee, itemPaidAmt, itemDueAmt]
       );
     }
 
@@ -375,14 +396,40 @@ app.post('/api/sales/multi', async (req, res) => {
 app.get('/api/sales/history', async (req, res) => {
   try {
     const query = `
-      SELECT s.id, p.name AS product_name, s.product_id, s.quantity_sold, s.total_revenue, s.amount_paid,
-             s.quantity_returned, s.amount_refunded, p.kg_per_unit, s.buyer_name, s.buyer_contact, s.quantity_unit, s.payment_method, s.sold_at 
-      FROM sales s
-      JOIN products p ON s.product_id = p.id AND p.tenant_id = ?
-      WHERE s.tenant_id = ?
-      ORDER BY s.sold_at DESC;
+      SELECT 
+        o.id AS id,
+        o.buyer_name,
+        o.contact_number AS buyer_contact,
+        o.payment_method,
+        o.payment_status,
+        o.total_amount AS total_revenue,
+        o.transportation_fee,
+        o.created_at AS sold_at,
+        o.paid_amount AS paid_amount,
+        o.due_amount AS due_amount,
+        o.paid_amount AS amount_paid,
+        SUM(s.quantity_returned) AS quantity_returned,
+        SUM(s.amount_refunded) AS amount_refunded,
+        JSON_ARRAYAGG(
+          JSON_OBJECT(
+            'product_id', p.id,
+            'product_name', p.name,
+            'quantity_sold', s.quantity_sold,
+            'quantity_unit', s.quantity_unit,
+            'total_revenue', s.total_revenue,
+            'quantity_returned', s.quantity_returned,
+            'amount_refunded', s.amount_refunded,
+            'sale_id', s.id
+          )
+        ) AS items
+      FROM orders o
+      LEFT JOIN sales s ON o.id = s.order_id
+      LEFT JOIN products p ON s.product_id = p.id
+      WHERE o.tenant_id = ?
+      GROUP BY o.id
+      ORDER BY o.created_at DESC;
     `;
-    const [rows] = await pool.execute(query, [req.tenant_id, req.tenant_id]);
+    const [rows] = await pool.execute(query, [req.tenant_id]);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -401,21 +448,247 @@ app.delete('/api/products/:id', async (req, res) => {
   }
 });
 
-// SALES: Clear outstanding debt balance
-app.patch('/api/sales/:id/settle', async (req, res) => {
+// SALES: Clear outstanding debt balance / record payments
+// SALES: Clear outstanding debt balance / record payments
+const settleBalanceHandler = async (req, res) => {
   const { id } = req.params;
-  try {
-    const [rows] = await pool.execute('SELECT total_revenue FROM sales WHERE id = ? AND tenant_id = ?', [id, req.tenant_id]);
-    if (rows.length === 0) return res.status(404).json({ error: "Record not found" });
+  const paymentAmountInput = req.body.amount !== undefined ? req.body.amount : req.body.payment_amount;
+  const paymentMethodInput = req.body.payment_method || 'Cash';
 
-    const total = rows[0].total_revenue;
-    await pool.execute(
-      'UPDATE sales SET amount_paid = ?, payment_method = "Cash (Settled)" WHERE id = ? AND tenant_id = ?',
-      [total, id, req.tenant_id]
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // 1. Fetch the master order details
+    const [orders] = await connection.execute(
+      'SELECT id, total_amount, paid_amount, due_amount, payment_method FROM orders WHERE id = ? AND tenant_id = ? FOR UPDATE',
+      [id, req.tenant_id]
     );
-    res.json({ success: true, message: "Balance settled successfully" });
+    if (orders.length === 0) {
+      const [salesFallback] = await connection.execute(
+        'SELECT order_id FROM sales WHERE id = ? AND tenant_id = ? FOR UPDATE',
+        [id, req.tenant_id]
+      );
+      if (salesFallback.length === 0) {
+        return res.status(404).json({ error: "Order/Sale record not found" });
+      }
+      return res.status(400).json({ error: "Settle balance should target the master order ID." });
+    }
+
+    const order = orders[0];
+    const totalAmount = parseFloat(order.total_amount) || 0;
+    const currentPaid = parseFloat(order.paid_amount) || 0;
+    const currentDue  = parseFloat(order.due_amount)  || 0;
+
+    // Default to settling the full due balance if no amount is provided
+    const settleAmount = paymentAmountInput !== undefined && paymentAmountInput !== null
+      ? parseFloat(paymentAmountInput)
+      : currentDue;
+
+    if (isNaN(settleAmount) || settleAmount <= 0) {
+      await connection.rollback();
+      return res.status(400).json({ error: "Settle amount must be a positive number." });
+    }
+
+    // ── Overpayment guard: reject if payment exceeds the remaining due ──
+    const remaining_due = order.total_amount - order.paid_amount;
+    if (settleAmount > remaining_due) {
+      await connection.rollback();
+      return res.status(400).json({
+        error: `Payment amount (₹${settleAmount}) cannot exceed the remaining due balance (₹${remaining_due}).`
+      });
+    }
+
+    const newPaidAmount = Math.min(order.total_amount, order.paid_amount + settleAmount);
+    const newDueAmount = Math.max(0, order.total_amount - newPaidAmount);
+    const newStatus = newDueAmount <= 0 ? 'Paid' : 'Partial';
+
+    // 2. Update the master order record
+    await connection.execute(
+      `UPDATE orders 
+       SET paid_amount = ?, due_amount = ?, payment_status = ?, payment_method = ?
+       WHERE id = ? AND tenant_id = ?`,
+      [newPaidAmount, newDueAmount, newStatus, paymentMethodInput, id, req.tenant_id]
+    );
+
+    // 3. Proportionally update the sales records for ledger consistency
+    const [sales] = await connection.execute(
+      'SELECT id, total_revenue FROM sales WHERE order_id = ? AND tenant_id = ? FOR UPDATE',
+      [id, req.tenant_id]
+    );
+
+    for (const sale of sales) {
+      const subtotal = parseFloat(sale.total_revenue) || 0;
+      const itemRatio = totalAmount > 0 ? (subtotal / totalAmount) : 0;
+      const itemPaidAmt = newPaidAmount * itemRatio;
+      const itemDueAmt = Math.max(0, subtotal - itemPaidAmt);
+      const itemStatus = itemDueAmt <= 0 ? 'Paid' : 'Partial';
+
+      await connection.execute(
+        `UPDATE sales 
+         SET amount_paid = ?, paid_amount = ?, due_amount = ?, payment_status = ?, payment_method = ?
+         WHERE id = ? AND tenant_id = ?`,
+         [itemPaidAmt, itemPaidAmt, itemDueAmt, itemStatus, paymentMethodInput, sale.id, req.tenant_id]
+      );
+    }
+
+    await connection.commit();
+    res.json({ success: true, message: "Balance settled successfully", order: { id, paid_amount: newPaidAmount, due_amount: newDueAmount, payment_status: newStatus } });
   } catch (err) {
+    await connection.rollback();
     res.status(500).json({ error: err.message });
+  } finally {
+    connection.release();
+  }
+};
+
+app.post('/api/sales/:id/settle', settleBalanceHandler);
+app.put('/api/sales/:id/settle', settleBalanceHandler);
+app.patch('/api/sales/:id/settle', settleBalanceHandler);
+
+// SALES: Edit existing sales order entry
+app.put('/api/sales/:id', async (req, res) => {
+  const { id } = req.params;
+  const { buyer_name, contact_number, payment_method, payment_status, transportation_fee, items, total_amount } = req.body;
+  const newTransportFee = parseFloat(transportation_fee) || 0;
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // 1. Fetch current order details
+    const [orders] = await connection.execute(
+      'SELECT id, total_amount, transportation_fee, paid_amount, due_amount FROM orders WHERE id = ? AND tenant_id = ? FOR UPDATE',
+      [id, req.tenant_id]
+    );
+    if (orders.length === 0) {
+      throw new Error("Order not found");
+    }
+
+    const existingOrder = orders[0];
+    let orderPaidAmount = parseFloat(existingOrder.paid_amount) || 0;
+    let orderDueAmount = parseFloat(existingOrder.due_amount) || 0;
+
+    if (payment_status === 'Paid') {
+      orderPaidAmount = parseFloat(total_amount) || 0;
+      orderDueAmount = 0;
+    } else if (payment_status === 'Unpaid') {
+      orderPaidAmount = 0;
+      orderDueAmount = parseFloat(total_amount) || 0;
+    } else { // 'Partial'
+      orderDueAmount = Math.max(0, (parseFloat(total_amount) || 0) - orderPaidAmount);
+    }
+
+    // 2. Fetch current sales items for this order to perform stock adjustment comparison
+    const [oldSales] = await connection.execute(
+      'SELECT id, product_id, quantity_sold FROM sales WHERE order_id = ? AND tenant_id = ? FOR UPDATE',
+      [id, req.tenant_id]
+    );
+
+    // 3. Compute net stock change for each product
+    const netChange = {}; // product_id -> net quantity sold change (new_qty - old_qty)
+    for (const sale of oldSales) {
+      const pId = sale.product_id;
+      netChange[pId] = (netChange[pId] || 0) - parseFloat(sale.quantity_sold);
+    }
+    for (const item of items || []) {
+      const pId = Number(item.product_id);
+      netChange[pId] = (netChange[pId] || 0) + parseFloat(item.quantity);
+    }
+
+    // 4. Validate and Adjust stock in products table
+    for (const pId of Object.keys(netChange)) {
+      const change = netChange[pId];
+      if (change === 0) continue;
+
+      if (change > 0) {
+        // Need to deduct additional stock; verify availability
+        const [products] = await connection.execute(
+          'SELECT id, name, quantity FROM products WHERE id = ? AND tenant_id = ? FOR UPDATE',
+          [pId, req.tenant_id]
+        );
+        if (products.length === 0) {
+          throw new Error(`Product ID ${pId} not found in inventory.`);
+        }
+        const prod = products[0];
+        if (parseFloat(prod.quantity) < change) {
+          throw new Error(`Insufficient stock for "${prod.name}". Additional needed: ${change.toFixed(2)}, Available: ${parseFloat(prod.quantity).toFixed(2)}.`);
+        }
+      }
+
+      // Update product stock levels
+      await connection.execute(
+        'UPDATE products SET quantity = quantity - ? WHERE id = ? AND tenant_id = ?',
+        [change, pId, req.tenant_id]
+      );
+    }
+
+    // 5. Update master order record
+    await connection.execute(
+      `UPDATE orders 
+       SET buyer_name = ?, contact_number = ?, payment_method = ?, payment_status = ?, transportation_fee = ?, total_amount = ?, paid_amount = ?, due_amount = ?
+       WHERE id = ? AND tenant_id = ?`,
+      [buyer_name || null, contact_number || null, payment_method, payment_status, newTransportFee, parseFloat(total_amount) || 0, orderPaidAmount, orderDueAmount, id, req.tenant_id]
+    );
+
+    // 6. Delete sales rows that were removed from the order
+    const keepSaleIds = (items || []).map(item => item.sale_id).filter(sid => sid !== undefined && sid !== null);
+    if (keepSaleIds.length > 0) {
+      await connection.execute(
+        `DELETE FROM sales WHERE order_id = ? AND tenant_id = ? AND id NOT IN (${keepSaleIds.map(() => '?').join(',')})`,
+        [id, req.tenant_id, ...keepSaleIds]
+      );
+    } else {
+      await connection.execute(
+        'DELETE FROM sales WHERE order_id = ? AND tenant_id = ?',
+        [id, req.tenant_id]
+      );
+    }
+
+    // 7. Insert new items or update existing items in the sales table
+    for (let i = 0; i < (items || []).length; i++) {
+      const item = items[i];
+      const productId = Number(item.product_id);
+      const qty = parseFloat(item.quantity);
+      const unitPrice = Number(item.unit_price);
+      const subtotal = Number(item.subtotal);
+      const unit = item.unit || 'Piece';
+      const itemTransportFee = i === 0 ? newTransportFee : 0;
+      
+      const itemRatio = parseFloat(total_amount) > 0 ? (subtotal / parseFloat(total_amount)) : 0;
+      const itemPaidAmt = orderPaidAmount * itemRatio;
+      const itemDueAmt = subtotal - itemPaidAmt;
+
+      if (item.sale_id) {
+        await connection.execute(
+          `UPDATE sales 
+           SET product_id = ?, quantity_sold = ?, total_revenue = ?, quantity_unit = ?, payment_method = ?, payment_status = ?, transportation_fee = ?, amount_paid = ?, paid_amount = ?, due_amount = ?
+           WHERE id = ? AND order_id = ? AND tenant_id = ?`,
+          [productId, qty, subtotal, unit, payment_method, payment_status, itemTransportFee, itemPaidAmt, itemPaidAmt, itemDueAmt, item.sale_id, id, req.tenant_id]
+        );
+      } else {
+        await connection.execute(
+          `INSERT INTO sales
+             (tenant_id, order_id, product_id, quantity_sold, total_revenue, payment_method, payment_status, transportation_fee, quantity_unit, amount_paid, paid_amount, due_amount, sold_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+          [req.tenant_id, id, productId, qty, subtotal, payment_method, payment_status, itemTransportFee, unit, itemPaidAmt, itemPaidAmt, itemDueAmt]
+        );
+      }
+    }
+
+    // 8. Retrieve the updated order object
+    const [updatedOrders] = await connection.execute(
+      'SELECT id, tenant_id, buyer_name, contact_number, payment_method, payment_status, total_amount, transportation_fee, created_at, paid_amount, due_amount FROM orders WHERE id = ? AND tenant_id = ?',
+      [id, req.tenant_id]
+    );
+
+    await connection.commit();
+    res.json({ success: true, message: "Order updated successfully", order: updatedOrders[0] });
+  } catch (err) {
+    await connection.rollback();
+    res.status(500).json({ error: err.message });
+  } finally {
+    connection.release();
   }
 });
 
@@ -423,137 +696,145 @@ app.patch('/api/sales/:id/settle', async (req, res) => {
  * 🔄 SALES: Process Partial Item Returns / Refunds
  */
 app.post('/api/sales/:id/return', async (req, res) => {
-  const { id } = req.params;
-  const { returned_quantity, refund_cash, quantity_unit } = req.body;
+  const { id } = req.params; // master order_id
+  const { items, refund_type } = req.body; // array of { product_id, return_quantity }, refund_type
 
-  if (!returned_quantity || parseFloat(returned_quantity) <= 0) {
-    return res.status(400).json({ error: "A valid return volume metric must be declared." });
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: "No items declared for return." });
   }
 
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
 
-    const [sales] = await connection.execute(
-      'SELECT product_id, quantity_sold, total_revenue, amount_paid, quantity_returned, amount_refunded, quantity_unit, payment_method FROM sales WHERE id = ? AND tenant_id = ? FOR UPDATE', 
-      [Number(id), req.tenant_id]
+    // 1. Fetch master order
+    const [orders] = await connection.execute(
+      'SELECT id, total_amount, paid_amount, due_amount, payment_status FROM orders WHERE id = ? AND tenant_id = ? FOR UPDATE',
+      [id, req.tenant_id]
     );
-    if (sales.length === 0) throw new Error("Transaction record not found within your tenant ecosystem.");
-    
-    const sale = sales[0];
-    const originalQty = parseFloat(sale.quantity_sold);
-    const returnedQtySoFar = parseFloat(sale.quantity_returned || 0);
-    const originalRevenue = parseFloat(sale.total_revenue);
-    const amountPaid = parseFloat(sale.amount_paid);
-    const amountRefundedSoFar = parseFloat(sale.amount_refunded || 0);
-    
-    const [products] = await connection.execute(
-      'SELECT id, quantity, kg_per_unit FROM products WHERE id = ? AND tenant_id = ? FOR UPDATE',
-      [Number(sale.product_id), req.tenant_id]
-    );
-    if (products.length === 0) throw new Error("Parent catalog item structure no longer exists.");
-    
-    const product = products[0];
-    const kgPerUnit = parseFloat(product.kg_per_unit) || 1.00;
+    if (orders.length === 0) {
+      throw new Error("Order not found.");
+    }
+    const order = orders[0];
 
-    const inputQty = parseFloat(returned_quantity);
-    let qtyToCompare = 0; 
-    let stockToRestore = 0; 
+    let totalRefundValue = 0;
+    const itemsToProcess = [];
 
-    if (sale.quantity_unit === 'Kg') {
-      if (quantity_unit === 'Kg') {
-        qtyToCompare = inputQty;
-        stockToRestore = inputQty / kgPerUnit;
-      } else {
-        qtyToCompare = inputQty * kgPerUnit;
-        stockToRestore = inputQty;
+    // 2. Fetch sales items under this order and calculate return valuation
+    for (const item of items) {
+      const productId = Number(item.product_id);
+      const returnQty = parseFloat(item.return_quantity);
+
+      if (isNaN(returnQty) || returnQty <= 0) continue; // skip zero/invalid returns
+
+      const [sales] = await connection.execute(
+        'SELECT id, product_id, quantity_sold, quantity_returned, total_revenue, amount_refunded FROM sales WHERE order_id = ? AND product_id = ? AND tenant_id = ? FOR UPDATE',
+        [id, productId, req.tenant_id]
+      );
+      if (sales.length === 0) {
+        throw new Error(`Item with product ID ${productId} not found in this order.`);
       }
-    } else { 
-      if (quantity_unit === 'Bags') {
-        qtyToCompare = inputQty;
-        stockToRestore = inputQty;
-      } else {
-        qtyToCompare = inputQty / kgPerUnit;
-        stockToRestore = inputQty / kgPerUnit;
+      const sale = sales[0];
+      const originalQty = parseFloat(sale.quantity_sold);
+      const returnedQtySoFar = parseFloat(sale.quantity_returned || 0);
+      const remainingQty = originalQty - returnedQtySoFar;
+
+      if (returnQty > remainingQty) {
+        throw new Error(`Cannot return more than the remaining quantity (${remainingQty}) for product ID ${productId}.`);
       }
+
+      const originalRevenue = parseFloat(sale.total_revenue);
+      const unitPrice = originalQty > 0 ? (originalRevenue / originalQty) : 0;
+      const refundVal = returnQty * unitPrice;
+
+      totalRefundValue += refundVal;
+      itemsToProcess.push({
+        sale,
+        productId,
+        returnQty,
+        refundVal
+      });
     }
 
-    const remainingReturnable = originalQty - returnedQtySoFar;
-    if (qtyToCompare > remainingReturnable) {
-      throw new Error(`Invalid request. Max returnable volume is ${remainingReturnable.toFixed(2)} ${sale.quantity_unit}`);
+    if (itemsToProcess.length === 0) {
+      throw new Error("No items were valid for return.");
+    }
+
+    // 3. Increment stock in products table
+    for (const processItem of itemsToProcess) {
+      await connection.execute(
+        'UPDATE products SET quantity = quantity + ? WHERE id = ? AND tenant_id = ?',
+        [processItem.returnQty, processItem.productId, req.tenant_id]
+      );
+
+      // Update sales row
+      const newQtyReturned = parseFloat(processItem.sale.quantity_returned || 0) + processItem.returnQty;
+      const newAmountRefunded = parseFloat(processItem.sale.amount_refunded || 0) + processItem.refundVal;
+
+      await connection.execute(
+        'UPDATE sales SET quantity_returned = ?, amount_refunded = ? WHERE id = ? AND tenant_id = ?',
+        [newQtyReturned, newAmountRefunded, processItem.sale.id, req.tenant_id]
+      );
+
+      // Insert return log row
+      await connection.execute(
+        'INSERT INTO returns (tenant_id, sale_id, quantity_returned, amount_refunded) VALUES (?, ?, ?, ?)',
+        [req.tenant_id, processItem.sale.id, processItem.returnQty, processItem.refundVal]
+      );
+    }
+
+    // 4. Financial Adjustments on Master Order
+    let newTotalAmount = Math.max(0, parseFloat(order.total_amount) - totalRefundValue);
+    let newPaidAmount = parseFloat(order.paid_amount) || 0;
+    let newDueAmount = parseFloat(order.due_amount) || 0;
+
+    if (refund_type === 'deduct_due') {
+      const deductFromDue = Math.min(newDueAmount, totalRefundValue);
+      newDueAmount = Math.max(0, newDueAmount - deductFromDue);
+      const remainingRefund = totalRefundValue - deductFromDue;
+      newPaidAmount = Math.max(0, newPaidAmount - remainingRefund);
+    } else { // refund_cash
+      newPaidAmount = Math.max(0, newPaidAmount - totalRefundValue);
+    }
+
+    // Recalculate status based on new due_amount
+    let newStatus = order.payment_status;
+    if (newDueAmount <= 0) {
+      newStatus = 'Paid';
+    } else if (newPaidAmount > 0 && newDueAmount > 0) {
+      newStatus = 'Partial';
+    } else if (newPaidAmount === 0) {
+      newStatus = 'Unpaid';
     }
 
     await connection.execute(
-      'UPDATE products SET quantity = quantity + ? WHERE id = ? AND tenant_id = ?',
-      [Number(stockToRestore), Number(sale.product_id), req.tenant_id]
+      'UPDATE orders SET total_amount = ?, paid_amount = ?, due_amount = ?, payment_status = ? WHERE id = ? AND tenant_id = ?',
+      [newTotalAmount, newPaidAmount, newDueAmount, newStatus, id, req.tenant_id]
     );
 
-    const valuePerUnit = originalRevenue / originalQty;
-    const returnedValuation = valuePerUnit * qtyToCompare;
-    const currentOutstanding = originalRevenue - amountPaid - amountRefundedSoFar;
-    
-    let refundCashAmount = 0;
-    let newAmountPaid = amountPaid;
+    // Sync sales status and paid amounts for ledger compatibility
+    const [salesAfter] = await connection.execute(
+      'SELECT id, total_revenue FROM sales WHERE order_id = ? AND tenant_id = ? FOR UPDATE',
+      [id, req.tenant_id]
+    );
+    for (const sale of salesAfter) {
+      const subtotal = parseFloat(sale.total_revenue) || 0;
+      const itemRatio = newTotalAmount > 0 ? (subtotal / newTotalAmount) : 0;
+      const itemPaidAmt = newPaidAmount * itemRatio;
+      const itemDueAmt = Math.max(0, subtotal - itemPaidAmt);
+      const itemStatus = itemDueAmt <= 0 ? 'Paid' : 'Partial';
 
-    if (refund_cash) {
-      refundCashAmount = returnedValuation;
-      newAmountPaid = Math.max(0, amountPaid - returnedValuation);
-    } else {
-      if (currentOutstanding >= returnedValuation) {
-        refundCashAmount = 0;
-      } else {
-        refundCashAmount = returnedValuation - currentOutstanding;
-        newAmountPaid = Math.max(0, amountPaid - refundCashAmount);
-      }
+      await connection.execute(
+        'UPDATE sales SET amount_paid = ?, paid_amount = ?, due_amount = ?, payment_status = ? WHERE id = ? AND tenant_id = ?',
+        [itemPaidAmt, itemPaidAmt, itemDueAmt, itemStatus, sale.id, req.tenant_id]
+      );
     }
-
-    let newPaymentMethod = sale.payment_method;
-    const finalQuantityReturned = returnedQtySoFar + qtyToCompare;
-    const finalAmountRefunded = amountRefundedSoFar + returnedValuation;
-    const netRevenue = originalRevenue - finalAmountRefunded;
-
-    if (finalQuantityReturned >= originalQty) {
-      newPaymentMethod = "Returned";
-    } else if (newAmountPaid === 0) {
-      newPaymentMethod = "Credit";
-    } else if (newAmountPaid < netRevenue) {
-      if (!newPaymentMethod.toLowerCase().includes('partial')) {
-        newPaymentMethod = `Partial (${newPaymentMethod})`;
-      }
-    } else {
-      newPaymentMethod = "Cash";
-    }
-
-    await connection.execute(
-      'UPDATE sales SET quantity_returned = ?, amount_refunded = ?, amount_paid = ?, payment_method = ? WHERE id = ? AND tenant_id = ?',
-      [Number(finalQuantityReturned), Number(finalAmountRefunded), Number(newAmountPaid), newPaymentMethod, Number(id), req.tenant_id]
-    );
-
-    await connection.execute(
-      `CREATE TABLE IF NOT EXISTS returns (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        tenant_id VARCHAR(36) NOT NULL,
-        sale_id INT NOT NULL,
-        quantity_returned DECIMAL(10, 2) NOT NULL,
-        amount_refunded DECIMAL(10, 2) NOT NULL,
-        returned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )`
-    );
-    await connection.execute(
-      'INSERT INTO returns (tenant_id, sale_id, quantity_returned, amount_refunded) VALUES (?, ?, ?, ?)',
-      [req.tenant_id, Number(id), Number(qtyToCompare), Number(returnedValuation)]
-    );
 
     await connection.commit();
-    res.json({ 
-      success: true, 
-      message: "Return processed successfully.",
-      refundCashAmount: refundCashAmount,
-      newOutstandingDue: Math.max(0, netRevenue - newAmountPaid)
-    });
+    res.json({ success: true, message: "Returns processed successfully" });
   } catch (err) {
     await connection.rollback();
-    res.status(400).json({ error: err.message });
+    res.status(500).json({ error: err.message });
   } finally {
     connection.release();
   }
