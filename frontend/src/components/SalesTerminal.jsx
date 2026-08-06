@@ -71,7 +71,7 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
   const [buyerName, setBuyerName] = useState('');
   const [contactNumber, setContactNumber] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('Cash');
-  const [includeTransport, setIncludeTransport] = useState(false);
+  const [transportationFee, setTransportationFee] = useState(0);
   const [advancePayment, setAdvancePayment] = useState('');
 
   // Current item inputs
@@ -186,7 +186,7 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
   };
 
   const baseTotal = cart.reduce((sum, item) => sum + (typeof item?.subtotal === 'number' ? item.subtotal : 0), 0);
-  const transportFee = includeTransport ? 200 : 0;
+  const transportFee = transportationFee;
   const grandTotal = baseTotal + transportFee;
 
   // --- ADVANCE PAYMENT: Clamped change handler ---
@@ -264,7 +264,7 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
         setBuyerName('');
         setContactNumber('');
         setPaymentMethod('Cash');
-        setIncludeTransport(false);
+        setTransportationFee(0);
         setAdvancePayment('');
         setSelectedProductId('');
         setQuantity('');
@@ -329,15 +329,15 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
               </div>
             </div>
           <div className="space-y-1.5 text-left pt-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input 
-                  type="checkbox" 
-                  checked={includeTransport} 
-                  onChange={(e) => setIncludeTransport(e.target.checked)} 
-                  className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900 w-4 h-4 cursor-pointer"
-                />
-                <span className="text-xs tracking-tight text-text-muted font-sans font-medium">Include Transportation (+ ₹200)</span>
-              </label>
+              <label className="text-xs tracking-tight text-text-muted font-sans block">Transportation / Delivery Charge (₹)</label>
+              <input
+                type="number"
+                min="0"
+                placeholder="0.00"
+                value={transportationFee}
+                onChange={(e) => setTransportationFee(Math.max(0, parseFloat(e.target.value) || 0))}
+                className="w-full bg-surface border border-border-subtle focus:border-zinc-500 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
+              />
             </div>
           </div>
 
@@ -464,10 +464,10 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
           </div>
 
           <div className="border-t border-border-subtle pt-4 space-y-4 mt-auto">
-            {includeTransport && (
+            {transportationFee > 0 && (
               <div className="flex justify-between items-center text-sm font-mono text-text-secondary pb-2 border-b border-border-subtle/50">
-                <span>Transportation Fee:</span>
-                <span>₹200.00</span>
+                <span>Transportation Charge:</span>
+                <span>+ ₹{transportationFee.toFixed(2)}</span>
               </div>
             )}
             <div className="flex justify-between items-center text-lg">

@@ -5,6 +5,7 @@ export default function ReportsView({ salesHistory = [], isLoaded = false, refre
   const [searchQuery, setSearchQuery] = useState('');
   const [productType, setProductType] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('All');
+  const [paymentStatus, setPaymentStatus] = useState('All');
   const [timePreset, setTimePreset] = useState('All');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -14,7 +15,7 @@ export default function ReportsView({ salesHistory = [], isLoaded = false, refre
 
   // --- EDIT CONTROL ENGINE STATES ---
   const [editingSale, setEditingSale] = useState(null);
-  const [editForm, setEditForm] = useState({ buyer_name: '', contact_number: '', payment_method: 'Cash', payment_status: 'Paid', transportation_fee: 0, items: [] });
+  const [editForm, setEditForm] = useState({ buyer_name: '', contact_number: '', payment_method: 'Cash', payment_status: 'Paid', transportation_fee: 0, items: [], custom_total: undefined });
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   // --- SETTLE BALANCE MODAL STATES ---
@@ -92,7 +93,8 @@ export default function ReportsView({ salesHistory = [], isLoaded = false, refre
     setIsSavingEdit(true);
 
     const itemsSubtotal = editForm.items.reduce((acc, item) => acc + item.subtotal, 0);
-    const finalTotal = itemsSubtotal + (editForm.transportation_fee || 0);
+    const calculatedTotal = itemsSubtotal + (editForm.transportation_fee || 0);
+    const finalTotal = editForm.custom_total !== undefined ? editForm.custom_total : calculatedTotal;
 
     const payload = {
       ...editForm,
@@ -182,6 +184,12 @@ export default function ReportsView({ salesHistory = [], isLoaded = false, refre
         if (selected !== 'credit' && dbMethod !== selected) return false;
       }
 
+      if (paymentStatus !== 'All') {
+        const dbStatus = log.payment_status?.toLowerCase() || '';
+        const selectedStatus = paymentStatus.toLowerCase();
+        if (dbStatus !== selectedStatus) return false;
+      }
+
       if (log.sold_at) {
         const saleDate = new Date(log.sold_at);
         if (timePreset === 'Today' && now.toDateString() !== saleDate.toDateString()) return false;
@@ -205,7 +213,7 @@ export default function ReportsView({ salesHistory = [], isLoaded = false, refre
 
       return true;
     });
-  }, [salesHistory, searchQuery, productType, paymentMethod, timePreset, startDate, endDate, minPrice, maxPrice]);
+  }, [salesHistory, searchQuery, productType, paymentMethod, paymentStatus, timePreset, startDate, endDate, minPrice, maxPrice]);
 
   const filteredRevenue = useMemo(() => {
     return filteredLogs.reduce((acc, log) => acc + parseFloat(log.total_revenue || 0), 0);
@@ -222,7 +230,18 @@ export default function ReportsView({ salesHistory = [], isLoaded = false, refre
           <button onClick={() => setShowFilters(!showFilters)} className={`text-xs font-mono tracking-tight px-4 py-2.5 rounded-lg border flex items-center gap-2 cursor-pointer transition-all ${showFilters ? 'bg-zinc-900 text-white border-zinc-900 dark:bg-white dark:text-zinc-900' : 'border-zinc-200 dark:border-[#1f1f23] text-zinc-600'}`}>
             Filters
           </button>
-          {refreshReports && <button onClick={refreshReports} className="text-xs font-mono px-4 py-2.5 rounded-lg border border-zinc-200 dark:border-[#1f1f23] text-zinc-500 cursor-pointer">↻ Refresh</button>}
+          {refreshReports && <button onClick={() => {
+            if (refreshReports) refreshReports();
+            setSearchQuery('');
+            setProductType('');
+            setPaymentMethod('All');
+            setPaymentStatus('All');
+            setTimePreset('All');
+            setStartDate('');
+            setEndDate('');
+            setMinPrice('');
+            setMaxPrice('');
+          }} className="text-xs font-mono px-4 py-2.5 rounded-lg border border-zinc-200 dark:border-[#1f1f23] text-zinc-500 cursor-pointer">↻ Refresh</button>}
         </div>
       </header>
 
@@ -239,6 +258,12 @@ export default function ReportsView({ salesHistory = [], isLoaded = false, refre
               <option value="Cash">Cash</option>
               <option value="Online">Online</option>
               <option value="Credit">Credit/Partial</option>
+            </select>
+            <select value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value)} className="bg-zinc-50 dark:bg-zinc-900 border p-2 text-xs rounded-lg font-mono outline-none">
+              <option value="All">All Statuses</option>
+              <option value="Paid">Paid</option>
+              <option value="Partial">Partial</option>
+              <option value="Unpaid">Unpaid</option>
             </select>
             <select value={timePreset} onChange={(e) => setTimePreset(e.target.value)} className="bg-zinc-50 dark:bg-zinc-900 border p-2 text-xs rounded-lg font-mono outline-none">
               <option value="All">All Time</option>
@@ -289,10 +314,10 @@ export default function ReportsView({ salesHistory = [], isLoaded = false, refre
                   >
                     
                     {/* Primary Row Content Layout */}
-                    <div className="flex items-center justify-between p-5">
-                      <div className="flex flex-col gap-1 text-left">
-                        <div className="flex items-center gap-2">
-                          <span className={`text-sm font-medium tracking-tight ${isUnpaid ? 'text-red-700 dark:text-red-300 font-semibold' : isPartial ? 'text-amber-700 dark:text-amber-300 font-semibold' : 'text-zinc-900 dark:text-white'}`}>
+                    <div className="flex flex-col md:flex-row md:items-center justify-between p-4 border-b border-zinc-100 dark:border-zinc-800/60 gap-4">
+                      <div className="flex-1 space-y-1 text-left break-words whitespace-normal">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`text-sm font-medium tracking-tight break-words whitespace-normal ${isUnpaid ? 'text-red-700 dark:text-red-300 font-semibold' : isPartial ? 'text-amber-700 dark:text-amber-300 font-semibold' : 'text-zinc-900 dark:text-white'}`}>
                             {productName}
                           </span>
                           {dueVal === 0 ? (
@@ -309,90 +334,91 @@ export default function ReportsView({ salesHistory = [], isLoaded = false, refre
                             </span>
                           )}
                         </div>
-                        <span className={`text-xs font-mono ${isUnpaid ? 'text-red-600/80 dark:text-red-400/80' : isPartial ? 'text-amber-600/80 dark:text-amber-400/80' : 'text-zinc-500'}`}>
+                        <span className={`block text-xs font-mono ${isUnpaid ? 'text-red-600/80 dark:text-red-400/80' : isPartial ? 'text-amber-600/80 dark:text-amber-400/80' : 'text-zinc-500'}`}>
                           {log.sold_at ? new Date(log.sold_at).toLocaleString('en-US', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
                         </span>
                         {log.buyer_name && (
-                          <span className={`text-xs font-sans ${isUnpaid ? 'text-red-700/80 dark:text-red-300/80 font-medium' : isPartial ? 'text-amber-700/80 dark:text-amber-300/80 font-medium' : 'text-zinc-400'}`}>
+                          <span className={`block text-xs font-sans ${isUnpaid ? 'text-red-700/80 dark:text-red-300/80 font-medium' : isPartial ? 'text-amber-700/80 dark:text-amber-300/80 font-medium' : 'text-zinc-400'}`}>
                             {log.buyer_name} · {log.buyer_contact || 'No contact'}
                           </span>
                         )}
                         {parseFloat(log.quantity_returned || 0) > 0 && (
-                          <span className="text-[10px] font-mono text-red-500 font-medium">
+                          <span className="block text-[10px] font-mono text-red-500 font-medium mt-0.5">
                             Returned: {parseFloat(log.quantity_returned).toFixed(2)} {parsedItems[0]?.quantity_unit || 'units'}
                           </span>
                         )}
                       </div>
                       
-                      <div className="flex items-center gap-6">
-                        <div className="text-right hidden sm:flex flex-col items-end justify-center">
-                          <span className={`text-xs font-sans ${isUnpaid ? 'text-red-700/80 dark:text-red-300/80' : isPartial ? 'text-amber-700/80 dark:text-amber-300/80' : 'text-zinc-500'}`}>
-                            {currentQtySold.toFixed(2)} {log.quantity_unit || 'units'} sold
-                          </span>
+                      <div className="flex flex-col md:flex-row md:items-center items-end justify-between md:justify-end gap-3 pt-3 md:pt-0 border-t md:border-t-0 border-zinc-200 dark:border-zinc-800">
+                        <div className="flex flex-wrap items-center gap-3 text-xs order-2 md:order-1 mt-2 md:mt-0">
+                          {dueVal > 0 && (
+                            <>
+                              <span className="text-[9px] font-mono font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-red-600 text-white hidden md:inline-block">
+                                Due: ₹{dueVal.toFixed(2)}
+                              </span>
+                              <button 
+                                onClick={() => handleSettlePayment(log)}
+                                className="text-amber-600 dark:text-amber-500 hover:underline font-medium py-1 px-2 rounded bg-amber-500/10 md:bg-transparent"
+                              >
+                                Settle Balance
+                              </button>
+                            </>
+                          )}
                           
-                          <div className="flex items-center gap-2 mt-1">
-                            {dueVal > 0 && (
-                              <>
-                                <span className="text-[9px] font-mono font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-red-600 text-white">
-                                  Due: ₹{dueVal.toFixed(2)}
-                                </span>
-                                <button 
-                                  onClick={() => handleSettlePayment(log)}
-                                  className="text-[10px] font-mono text-red-700 dark:text-red-400 hover:underline font-bold cursor-pointer"
-                                >
-                                  Settle Balance
-                                </button>
-                                <span className="text-red-300 dark:text-red-700 text-xs">·</span>
-                              </>
-                            )}
-                            
-                            {/* Hide return triggers if the order item inventory is already completely refunded */}
-                            {currentQtySold > 0 && (
-                              <div className="flex items-center gap-2">
-                                <button 
-                                  onClick={() => {
-                                    setEditingSale(log);
-                                    
-                                    const mappedItems = parsedItems.map(item => ({
-                                      sale_id: item.sale_id,
-                                      product_id: item.product_id,
-                                      product_name: item.product_name,
-                                      quantity: parseFloat(item.quantity_sold),
-                                      unit_price: parseFloat(item.quantity_sold) > 0 ? parseFloat(item.total_revenue) / parseFloat(item.quantity_sold) : 0,
-                                      unit: item.quantity_unit || 'Piece',
-                                      subtotal: parseFloat(item.total_revenue)
-                                    }));
+                          {currentQtySold > 0 && (
+                            <>
+                              <button 
+                                onClick={() => {
+                                  setEditingSale(log);
+                                  
+                                  const mappedItems = parsedItems.map(item => ({
+                                    sale_id: item.sale_id,
+                                    product_id: item.product_id,
+                                    product_name: item.product_name,
+                                    quantity: parseFloat(item.quantity_sold),
+                                    unit_price: parseFloat(item.quantity_sold) > 0 ? parseFloat(item.total_revenue) / parseFloat(item.quantity_sold) : 0,
+                                    unit: item.quantity_unit || 'Piece',
+                                    subtotal: parseFloat(item.total_revenue)
+                                  }));
 
-                                    setEditForm({
-                                      buyer_name: log.buyer_name || '',
-                                      contact_number: log.buyer_contact || '',
-                                      payment_method: log.payment_method || 'Cash',
-                                      payment_status: isUnpaid ? 'Unpaid' : 'Paid',
-                                      transportation_fee: parseFloat(log.transportation_fee) || 0,
-                                      items: mappedItems
-                                    });
-                                  }}
-                                  className="text-[10px] font-mono underline cursor-pointer text-blue-500 hover:text-blue-700"
-                                >
-                                  Edit ✏️
-                                </button>
-                                <button 
-                                  onClick={() => handleOpenReturnModal(log, parsedItems)}
-                                  className={`text-[10px] font-mono underline cursor-pointer ${isUnpaid ? 'text-red-600 dark:text-red-400 hover:text-red-800' : 'text-zinc-400 hover:text-red-500'}`}
-                                >
-                                  Return Items
-                                </button>
-                              </div>
-                            )}
-                          </div>
+                                  const calcTot = mappedItems.reduce((acc, item) => acc + item.subtotal, 0) + (parseFloat(log.transportation_fee) || 0);
+                                  const originalTot = parseFloat(log.total_revenue) || 0;
+                                  
+                                  setEditForm({
+                                    buyer_name: log.buyer_name || '',
+                                    contact_number: log.buyer_contact || '',
+                                    payment_method: log.payment_method || 'Cash',
+                                    payment_status: isUnpaid ? 'Unpaid' : 'Paid',
+                                    transportation_fee: parseFloat(log.transportation_fee) || 0,
+                                    items: mappedItems,
+                                    custom_total: Math.abs(originalTot - calcTot) > 0.01 ? originalTot : undefined
+                                  });
+                                }}
+                                className="text-blue-500 hover:underline flex items-center gap-1 py-1 px-2 rounded bg-blue-500/10 md:bg-transparent"
+                              >
+                                Edit ✏️
+                              </button>
+                              <button 
+                                onClick={() => handleOpenReturnModal(log, parsedItems)}
+                                className="text-red-500 hover:underline py-1 px-2 rounded bg-red-500/10 md:bg-transparent"
+                              >
+                                Return Items
+                              </button>
+                            </>
+                          )}
                         </div>
                         
-                        <div className="flex flex-col items-end justify-center">
-                          <span className={`px-2.5 py-1 rounded-md font-mono text-sm font-medium ${isUnpaid ? 'bg-red-600 text-white font-bold shadow-sm' : 'bg-[#10b981]/10 text-[#10b981]'}`}>
-                            ₹{(parseFloat(log.total_revenue || 0) - parseFloat(log.amount_refunded || 0)).toFixed(2)}
-                          </span>
+                        <div className="text-right order-1 md:order-2 flex flex-col items-end w-full md:w-auto">
+                          <div className="flex justify-between md:flex-col items-center md:items-end w-full md:w-auto">
+                            <span className={`text-xs font-sans ${isUnpaid ? 'text-red-700/80 dark:text-red-300/80' : isPartial ? 'text-amber-700/80 dark:text-amber-300/80' : 'text-zinc-500'}`}>
+                              {currentQtySold.toFixed(2)} {log.quantity_unit || 'units'} sold
+                            </span>
+                            <span className={`px-3 py-1 rounded-md font-mono text-lg font-bold inline-block ${isUnpaid ? 'bg-red-600 text-white shadow-sm' : 'bg-[#10b981]/10 text-[#10b981]'}`}>
+                              ₹{(parseFloat(log.total_revenue || 0) - parseFloat(log.amount_refunded || 0)).toFixed(2)}
+                            </span>
+                          </div>
                           {parseFloat(log.amount_refunded || 0) > 0 && (
-                            <span className="text-[9px] font-mono text-red-400 mt-1">
+                            <span className="text-[9px] font-mono text-red-400 mt-1 block">
                               Refunded: ₹{parseFloat(log.amount_refunded).toFixed(2)}
                             </span>
                           )}
@@ -732,16 +758,19 @@ export default function ReportsView({ salesHistory = [], isLoaded = false, refre
                 </div>
               </div>
 
-              <div className="pt-2 pb-2">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input 
-                    type="checkbox" 
-                    checked={editForm.transportation_fee > 0}
-                    onChange={(e) => setEditForm({...editForm, transportation_fee: e.target.checked ? 200 : 0})}
-                    className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900 w-4 h-4 cursor-pointer"
-                  />
-                  <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">Include Transportation (+ ₹200)</span>
-                </label>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Transportation Charge (₹)</label>
+                <input 
+                  type="number" 
+                  min="0"
+                  value={editForm.transportation_fee === 0 ? '' : editForm.transportation_fee}
+                  onChange={(e) => {
+                    const fee = Math.max(0, parseFloat(e.target.value) || 0);
+                    setEditForm({...editForm, transportation_fee: fee});
+                  }}
+                  placeholder="0"
+                  className="w-full bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-900 dark:text-white outline-none"
+                />
               </div>
 
               {/* Editable Itemized Billing Table */}
@@ -817,11 +846,29 @@ export default function ReportsView({ salesHistory = [], isLoaded = false, refre
               </div>
 
               {/* Live Grand Total Banner */}
-              <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-3 flex justify-between items-center mt-2">
-                <span className="text-sm font-medium text-emerald-800 dark:text-emerald-400">Grand Total</span>
-                <span className="text-lg font-bold font-mono text-emerald-700 dark:text-emerald-300">
-                  ₹{(editForm.items.reduce((acc, item) => acc + item.subtotal, 0) + (editForm.transportation_fee || 0)).toFixed(2)}
-                </span>
+              <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-3 flex flex-col gap-2 mt-2">
+                <div className="flex justify-between items-center">
+                  <label className="text-sm font-medium text-emerald-800 dark:text-emerald-400">Grand Total (₹)</label>
+                  {editForm.custom_total !== undefined && editForm.custom_total !== (editForm.items.reduce((acc, item) => acc + item.subtotal, 0) + (editForm.transportation_fee || 0)) && (
+                    <span className="text-[10px] bg-emerald-200 dark:bg-emerald-800/50 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 rounded font-medium">
+                      Price Adjustment
+                    </span>
+                  )}
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={editForm.custom_total !== undefined ? editForm.custom_total : (editForm.items.reduce((acc, item) => acc + item.subtotal, 0) + (editForm.transportation_fee || 0))}
+                  onChange={(e) => {
+                    if (e.target.value === '') {
+                      setEditForm({...editForm, custom_total: undefined});
+                    } else {
+                      setEditForm({...editForm, custom_total: Math.max(0, parseFloat(e.target.value) || 0)});
+                    }
+                  }}
+                  className="w-full bg-white dark:bg-[#121214] border border-emerald-300 dark:border-emerald-700 rounded-lg px-3 py-2 text-lg font-bold font-mono text-emerald-700 dark:text-emerald-300 outline-none text-right"
+                />
               </div>
 
               <div className="flex gap-3 pt-4 border-t border-zinc-200 dark:border-zinc-800 mt-2">

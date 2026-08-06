@@ -398,7 +398,9 @@ app.post('/api/sales/multi', async (req, res) => {
 // REPORTS: View sales ledger history with timestamp details
 app.get('/api/sales/history', async (req, res) => {
   try {
-    const query = `
+    const { startDate, endDate, paymentStatus, paymentMethod, search } = req.query;
+
+    let query = `
       SELECT 
         o.id AS id,
         o.buyer_name,
@@ -428,10 +430,39 @@ app.get('/api/sales/history', async (req, res) => {
       LEFT JOIN sales s ON o.id = s.order_id AND s.tenant_id = o.tenant_id
       LEFT JOIN products p ON s.product_id = p.id AND p.tenant_id = o.tenant_id
       WHERE o.tenant_id = ?
-      GROUP BY o.id
-      ORDER BY o.created_at DESC;
     `;
-    const [rows] = await pool.execute(query, [req.tenant_id]);
+    const params = [req.tenant_id];
+
+    if (paymentStatus && paymentStatus !== 'All Status') {
+      // Normalize 'Unpaid' -> 'Unpaid' etc if needed, but UI typically sends exact strings.
+      query += ` AND o.payment_status = ?`;
+      params.push(paymentStatus);
+    }
+
+    if (paymentMethod && paymentMethod !== 'All Methods') {
+      query += ` AND o.payment_method = ?`;
+      params.push(paymentMethod);
+    }
+
+    if (startDate && endDate) {
+      query += ` AND o.created_at BETWEEN ? AND ?`;
+      params.push(startDate, endDate + ' 23:59:59');
+    } else if (startDate) {
+      query += ` AND o.created_at >= ?`;
+      params.push(startDate);
+    } else if (endDate) {
+      query += ` AND o.created_at <= ?`;
+      params.push(endDate + ' 23:59:59');
+    }
+
+    if (search) {
+      query += ` AND (o.buyer_name LIKE ? OR o.contact_number LIKE ?)`;
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    query += ` GROUP BY o.id ORDER BY o.created_at DESC;`;
+
+    const [rows] = await pool.execute(query, params);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -570,15 +601,23 @@ app.put('/api/sales/:id', async (req, res) => {
     const existingOrder = orders[0];
     let orderPaidAmount = parseFloat(existingOrder.paid_amount) || 0;
     let orderDueAmount = parseFloat(existingOrder.due_amount) || 0;
+    let finalPaymentStatus = payment_status;
 
-    if (payment_status === 'Paid') {
+    if (finalPaymentStatus === 'Paid') {
       orderPaidAmount = parseFloat(total_amount) || 0;
       orderDueAmount = 0;
-    } else if (payment_status === 'Unpaid') {
+    } else if (finalPaymentStatus === 'Unpaid') {
       orderPaidAmount = 0;
       orderDueAmount = parseFloat(total_amount) || 0;
     } else { // 'Partial'
-      orderDueAmount = Math.max(0, (parseFloat(total_amount) || 0) - orderPaidAmount);
+      orderDueAmount = (parseFloat(total_amount) || 0) - orderPaidAmount;
+      if (orderDueAmount <= 0) {
+        orderDueAmount = 0;
+        orderPaidAmount = parseFloat(total_amount) || 0;
+        finalPaymentStatus = 'Paid';
+      } else if (orderPaidAmount === 0) {
+        finalPaymentStatus = 'Unpaid';
+      }
     }
 
     // 2. Fetch current sales items for this order to perform stock adjustment comparison
@@ -630,7 +669,7 @@ app.put('/api/sales/:id', async (req, res) => {
       `UPDATE orders 
        SET buyer_name = ?, contact_number = ?, payment_method = ?, payment_status = ?, transportation_fee = ?, total_amount = ?, paid_amount = ?, due_amount = ?
        WHERE id = ? AND tenant_id = ?`,
-      [buyer_name || null, contact_number || null, payment_method, payment_status, newTransportFee, parseFloat(total_amount) || 0, orderPaidAmount, orderDueAmount, id, req.tenant_id]
+      [buyer_name || null, contact_number || null, payment_method, finalPaymentStatus, newTransportFee, parseFloat(total_amount) || 0, orderPaidAmount, orderDueAmount, id, req.tenant_id]
     );
 
     // 6. Delete sales rows that were removed from the order
@@ -666,14 +705,14 @@ app.put('/api/sales/:id', async (req, res) => {
           `UPDATE sales 
            SET product_id = ?, quantity_sold = ?, total_revenue = ?, quantity_unit = ?, payment_method = ?, payment_status = ?, transportation_fee = ?, paid_amount = ?, due_amount = ?
            WHERE id = ? AND order_id = ? AND tenant_id = ?`,
-          [productId, qty, subtotal, unit, payment_method, payment_status, itemTransportFee, itemPaidAmt, itemDueAmt, item.sale_id, id, req.tenant_id]
+          [productId, qty, subtotal, unit, payment_method, finalPaymentStatus, itemTransportFee, itemPaidAmt, itemDueAmt, item.sale_id, id, req.tenant_id]
         );
       } else {
         await connection.execute(
           `INSERT INTO sales
              (tenant_id, order_id, product_id, quantity_sold, total_revenue, payment_method, payment_status, transportation_fee, quantity_unit, paid_amount, due_amount, sold_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-          [req.tenant_id, id, productId, qty, subtotal, payment_method, payment_status, itemTransportFee, unit, itemPaidAmt, itemDueAmt]
+          [req.tenant_id, id, productId, qty, subtotal, payment_method, finalPaymentStatus, itemTransportFee, unit, itemPaidAmt, itemDueAmt]
         );
       }
     }
