@@ -240,18 +240,21 @@ app.post('/api/sales', async (req, res) => {
     );
 
     const finalAmountPaid = amount_paid !== undefined && amount_paid !== null ? parseFloat(amount_paid) : total_revenue;
-    const paymentStatus = finalAmountPaid >= total_revenue ? 'Paid' : 'Unpaid';
+    const dueAmount = Math.max(0, total_revenue - finalAmountPaid);
+    let paymentStatus = 'Paid';
+    if (dueAmount > 0 && finalAmountPaid > 0) paymentStatus = 'Partial';
+    else if (finalAmountPaid <= 0) paymentStatus = 'Unpaid';
 
     const [orderResult] = await connection.execute(
-      'INSERT INTO orders (tenant_id, buyer_name, contact_number, payment_method, payment_status, total_amount, transportation_fee, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, NOW())',
-      [req.tenant_id, buyer_name || 'Walk-in Customer', buyer_contact || 'N/A', payment_method || 'Cash', paymentStatus, total_revenue]
+      'INSERT INTO orders (tenant_id, buyer_name, contact_number, payment_method, payment_status, total_amount, paid_amount, due_amount, transportation_fee, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())',
+      [req.tenant_id, buyer_name || 'Walk-in Customer', buyer_contact || 'N/A', payment_method || 'Cash', paymentStatus, total_revenue, finalAmountPaid, dueAmount]
     );
 
     const orderId = orderResult.insertId;
 
     await connection.execute(
-      'INSERT INTO sales (tenant_id, order_id, product_id, quantity_sold, total_revenue, amount_paid, buyer_name, buyer_contact, quantity_unit, payment_method, payment_status, sold_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())',
-      [req.tenant_id, orderId, product_id, inputQty, total_revenue, finalAmountPaid, buyer_name || null, buyer_contact || null, quantity_unit || 'Piece', payment_method || 'Cash', paymentStatus]
+      'INSERT INTO sales (tenant_id, order_id, product_id, quantity_sold, total_revenue, paid_amount, due_amount, buyer_name, buyer_contact, quantity_unit, payment_method, payment_status, sold_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+      [req.tenant_id, orderId, product_id, inputQty, total_revenue, finalAmountPaid, dueAmount, buyer_name || null, buyer_contact || null, quantity_unit || 'Piece', payment_method || 'Cash', paymentStatus]
     );
 
     await connection.commit();
@@ -407,7 +410,6 @@ app.get('/api/sales/history', async (req, res) => {
         o.created_at AS sold_at,
         o.paid_amount AS paid_amount,
         o.due_amount AS due_amount,
-        o.paid_amount AS amount_paid,
         SUM(s.quantity_returned) AS quantity_returned,
         SUM(s.amount_refunded) AS amount_refunded,
         JSON_ARRAYAGG(
@@ -423,8 +425,8 @@ app.get('/api/sales/history', async (req, res) => {
           )
         ) AS items
       FROM orders o
-      LEFT JOIN sales s ON o.id = s.order_id
-      LEFT JOIN products p ON s.product_id = p.id
+      LEFT JOIN sales s ON o.id = s.order_id AND s.tenant_id = o.tenant_id
+      LEFT JOIN products p ON s.product_id = p.id AND p.tenant_id = o.tenant_id
       WHERE o.tenant_id = ?
       GROUP BY o.id
       ORDER BY o.created_at DESC;
@@ -526,9 +528,9 @@ const settleBalanceHandler = async (req, res) => {
 
       await connection.execute(
         `UPDATE sales 
-         SET amount_paid = ?, paid_amount = ?, due_amount = ?, payment_status = ?, payment_method = ?
+         SET paid_amount = ?, due_amount = ?, payment_status = ?, payment_method = ?
          WHERE id = ? AND tenant_id = ?`,
-         [itemPaidAmt, itemPaidAmt, itemDueAmt, itemStatus, paymentMethodInput, sale.id, req.tenant_id]
+         [itemPaidAmt, itemDueAmt, itemStatus, paymentMethodInput, sale.id, req.tenant_id]
       );
     }
 
@@ -662,16 +664,16 @@ app.put('/api/sales/:id', async (req, res) => {
       if (item.sale_id) {
         await connection.execute(
           `UPDATE sales 
-           SET product_id = ?, quantity_sold = ?, total_revenue = ?, quantity_unit = ?, payment_method = ?, payment_status = ?, transportation_fee = ?, amount_paid = ?, paid_amount = ?, due_amount = ?
+           SET product_id = ?, quantity_sold = ?, total_revenue = ?, quantity_unit = ?, payment_method = ?, payment_status = ?, transportation_fee = ?, paid_amount = ?, due_amount = ?
            WHERE id = ? AND order_id = ? AND tenant_id = ?`,
-          [productId, qty, subtotal, unit, payment_method, payment_status, itemTransportFee, itemPaidAmt, itemPaidAmt, itemDueAmt, item.sale_id, id, req.tenant_id]
+          [productId, qty, subtotal, unit, payment_method, payment_status, itemTransportFee, itemPaidAmt, itemDueAmt, item.sale_id, id, req.tenant_id]
         );
       } else {
         await connection.execute(
           `INSERT INTO sales
-             (tenant_id, order_id, product_id, quantity_sold, total_revenue, payment_method, payment_status, transportation_fee, quantity_unit, amount_paid, paid_amount, due_amount, sold_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-          [req.tenant_id, id, productId, qty, subtotal, payment_method, payment_status, itemTransportFee, unit, itemPaidAmt, itemPaidAmt, itemDueAmt]
+             (tenant_id, order_id, product_id, quantity_sold, total_revenue, payment_method, payment_status, transportation_fee, quantity_unit, paid_amount, due_amount, sold_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+          [req.tenant_id, id, productId, qty, subtotal, payment_method, payment_status, itemTransportFee, unit, itemPaidAmt, itemDueAmt]
         );
       }
     }
@@ -825,8 +827,8 @@ app.post('/api/sales/:id/return', async (req, res) => {
       const itemStatus = itemDueAmt <= 0 ? 'Paid' : 'Partial';
 
       await connection.execute(
-        'UPDATE sales SET amount_paid = ?, paid_amount = ?, due_amount = ?, payment_status = ? WHERE id = ? AND tenant_id = ?',
-        [itemPaidAmt, itemPaidAmt, itemDueAmt, itemStatus, sale.id, req.tenant_id]
+        'UPDATE sales SET paid_amount = ?, due_amount = ?, payment_status = ? WHERE id = ? AND tenant_id = ?',
+        [itemPaidAmt, itemDueAmt, itemStatus, sale.id, req.tenant_id]
       );
     }
 
@@ -871,6 +873,20 @@ app.get('/api/expenses', async (req, res) => {
       [req.tenant_id]
     );
     res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE: Remove an expense entry
+app.delete('/api/expenses/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [result] = await pool.execute('DELETE FROM expenses WHERE id = ? AND tenant_id = ?', [id, req.tenant_id]);
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Expense record not found' });
+    }
+    res.json({ success: true, message: 'Expense record deleted successfully', deletedId: id });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

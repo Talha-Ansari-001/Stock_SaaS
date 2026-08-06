@@ -18,25 +18,11 @@ USE saas_inventory;
 -- Table: tenants
 -- -----------------------------------------------------
 CREATE TABLE IF NOT EXISTS tenants (
-    id VARCHAR(36) PRIMARY KEY, -- Stores cryptographically safe UUID v4
-    name VARCHAR(255) NOT NULL,
-    stripe_customer_id VARCHAR(255) NULL,
-    subscription_status VARCHAR(50) NOT NULL DEFAULT 'trialing', -- e.g., 'trialing', 'active', 'past_due', 'canceled'
-    plan_tier VARCHAR(50) NOT NULL DEFAULT 'free', -- e.g., 'free', 'premium'
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB;
-
--- -----------------------------------------------------
--- Table: users
--- -----------------------------------------------------
-CREATE TABLE IF NOT EXISTS users (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    tenant_id VARCHAR(36) NOT NULL,
+    id VARCHAR(36) PRIMARY KEY,
+    business_name VARCHAR(255) NOT NULL UNIQUE,
     email VARCHAR(255) NOT NULL UNIQUE,
-    password_hash VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
-    CONSTRAINT fk_users_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+    password VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
 -- -----------------------------------------------------
@@ -45,19 +31,37 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS products (
     id INT AUTO_INCREMENT PRIMARY KEY,
     tenant_id VARCHAR(36) NOT NULL,
-    sku VARCHAR(100) NOT NULL,
     name VARCHAR(255) NOT NULL,
-    description TEXT,
+    quantity DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
     price DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-    cost DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-    stock INT NOT NULL DEFAULT 0,
-    low_stock_threshold INT NOT NULL DEFAULT 5, -- Low stock alert threshold
+    buying_price DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    kg_per_unit DECIMAL(10, 2) NOT NULL DEFAULT 1.00,
+    default_unit VARCHAR(50) NOT NULL DEFAULT 'Piece',
+    allowed_units VARCHAR(100) NOT NULL DEFAULT 'Piece',
+    supplier_name VARCHAR(255) DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    
-    -- Composite Unique Key: Enforces tenant-scoped SKU uniqueness and indexes tenant lookups
-    UNIQUE KEY uq_tenant_sku (tenant_id, sku),
+    KEY idx_products_tenant (tenant_id),
     CONSTRAINT fk_products_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- -----------------------------------------------------
+-- Table: orders
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    tenant_id VARCHAR(36) NOT NULL,
+    buyer_name VARCHAR(255) NOT NULL DEFAULT 'Walk-in Customer',
+    contact_number VARCHAR(50) NOT NULL DEFAULT 'N/A',
+    payment_method VARCHAR(50) NOT NULL DEFAULT 'Cash',
+    payment_status VARCHAR(20) NOT NULL DEFAULT 'Paid',
+    total_amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    paid_amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    due_amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    transportation_fee DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_orders_tenant (tenant_id),
+    CONSTRAINT fk_orders_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 -- -----------------------------------------------------
@@ -66,15 +70,56 @@ CREATE TABLE IF NOT EXISTS products (
 CREATE TABLE IF NOT EXISTS sales (
     id INT AUTO_INCREMENT PRIMARY KEY,
     tenant_id VARCHAR(36) NOT NULL,
+    order_id INT DEFAULT NULL,
     product_id INT NOT NULL,
-    quantity INT NOT NULL,
-    unit_price DECIMAL(10, 2) NOT NULL,
-    unit_cost DECIMAL(10, 2) NOT NULL,
-    sale_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
+    quantity_sold DECIMAL(10, 2) NOT NULL,
+    total_revenue DECIMAL(10, 2) NOT NULL,
+    paid_amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    due_amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    payment_method VARCHAR(50) NOT NULL DEFAULT 'Cash',
+    payment_status VARCHAR(20) NOT NULL DEFAULT 'Paid',
+    transportation_fee DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    quantity_unit VARCHAR(50) NOT NULL DEFAULT 'Piece',
+    buyer_name VARCHAR(255) DEFAULT NULL,
+    buyer_contact VARCHAR(100) DEFAULT NULL,
+    quantity_returned DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    amount_refunded DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    sold_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_sales_tenant (tenant_id),
+    KEY idx_sales_order (order_id),
+    KEY idx_sales_product (product_id),
     CONSTRAINT fk_sales_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
-    CONSTRAINT fk_sales_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
-    
-    -- Composite Index: Optimizes monthly reports and export queries
-    KEY idx_tenant_sale_date (tenant_id, sale_date)
+    CONSTRAINT fk_sales_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL,
+    CONSTRAINT fk_sales_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- -----------------------------------------------------
+-- Table: returns
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS returns (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    tenant_id VARCHAR(36) NOT NULL,
+    sale_id INT NOT NULL,
+    quantity_returned DECIMAL(10, 2) NOT NULL,
+    amount_refunded DECIMAL(10, 2) NOT NULL,
+    returned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_returns_tenant (tenant_id),
+    KEY idx_returns_sale (sale_id),
+    CONSTRAINT fk_returns_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+    CONSTRAINT fk_returns_sale FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- -----------------------------------------------------
+-- Table: expenses
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS expenses (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    tenant_id VARCHAR(36) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    category VARCHAR(100) NOT NULL,
+    amount DECIMAL(10, 2) NOT NULL,
+    notes TEXT,
+    spent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_expenses_tenant (tenant_id),
+    CONSTRAINT fk_expenses_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;

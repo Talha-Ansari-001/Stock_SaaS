@@ -53,6 +53,30 @@ export default function ExpensesView({ token, expenses = [], isLoaded = false, r
     }
   };
 
+  // 🗑️ Delete expense entry
+  const handleDelete = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this expense entry?')) return;
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/expenses/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (res.ok) {
+        // Refresh expenses list to reflect deletion
+        if (refreshExpenses) await refreshExpenses();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to delete expense entry.');
+      }
+    } catch (err) {
+      alert('Network error while deleting expense.');
+    }
+  };
+
+
   // ⚡ HIGH-PERFORMANCE DETERMINISTIC FILTERING ENGINE
   const filteredExpenses = expenses.filter((exp) => {
     // 1. Category Filter Match
@@ -273,9 +297,19 @@ export default function ExpensesView({ token, expenses = [], isLoaded = false, r
                     </div>
                     {exp.notes && <p className="text-xs text-zinc-400 dark:text-zinc-500 font-sans italic mt-1">"{exp.notes}"</p>}
                   </div>
-                  <span className="font-mono text-xs font-medium text-red-500 dark:text-red-400 px-2.5 py-1 bg-red-500/10 border border-red-500/20 rounded-md shrink-0">
-                    - ₹{parseFloat(exp.amount).toFixed(2)}
-                  </span>
+                  <div className="flex items-center space-x-2">
+                    <span className="font-mono text-xs font-medium text-red-500 dark:text-red-400 px-2.5 py-1 bg-red-500/10 border border-red-500/20 rounded-md shrink-0">
+                      - ₹{parseFloat(exp.amount).toFixed(2)}
+                    </span>
+                    <button
+                      onClick={() => handleDelete(exp.id)}
+                      className="text-red-600 hover:text-red-800 focus:outline-none"
+                      title="Delete expense"
+                      aria-label="Delete expense"
+                    >
+                      🗑️
+                    </button>
+                  </div>
                 </div>
               ))
             )}

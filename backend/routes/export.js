@@ -24,37 +24,44 @@ router.get('/export-csv', async (req, res) => {
   try {
     connection = await pool.getConnection();
 
-    // Query sales and join product data to construct transaction records
+    // Query uses actual schema columns:
+    //   sales.sold_at          (not sale_date)
+    //   products.name          (not sku — sku column doesn't exist)
+    //   sales.quantity_sold    (not quantity)
+    //   sales.total_revenue    (pre-computed line total)
+    //   products.buying_price  (unit cost)
     const query = `
       SELECT 
-        s.sale_date,
-        p.sku,
+        s.sold_at,
         p.name AS product_name,
-        s.quantity,
-        s.unit_price,
-        s.unit_cost,
-        (s.quantity * s.unit_price) AS gross_revenue,
-        (s.quantity * s.unit_cost) AS total_cost,
-        (s.quantity * (s.unit_price - s.unit_cost)) AS net_profit
+        s.quantity_sold,
+        s.quantity_unit,
+        s.total_revenue,
+        p.buying_price,
+        (s.quantity_sold * p.buying_price) AS total_cost,
+        (s.total_revenue - (s.quantity_sold * p.buying_price)) AS net_profit,
+        s.payment_method,
+        s.payment_status,
+        s.quantity_returned,
+        s.amount_refunded
       FROM sales s
-      JOIN products p ON s.product_id = p.id
-      WHERE s.tenant_id = ? AND DATE_FORMAT(s.sale_date, '%Y-%m') = ?
-      ORDER BY s.sale_date DESC
+      JOIN products p ON s.product_id = p.id AND p.tenant_id = ?
+      WHERE s.tenant_id = ? AND DATE_FORMAT(s.sold_at, '%Y-%m') = ?
+      ORDER BY s.sold_at DESC
     `;
 
-    const [rows] = await connection.query(query, [tenantId, month]);
+    const [rows] = await connection.query(query, [tenantId, tenantId, month]);
 
     // Build the CSV string matching standard RFC 4180 specs
-    let csvString = 'Date,SKU,Product Name,Quantity,Unit Price,Unit Cost,Gross Revenue,Total Cost,Net Profit\n';
+    let csvString = 'Date,Product Name,Quantity Sold,Unit,Total Revenue,Buying Price,Total Cost,Net Profit,Payment Method,Payment Status,Qty Returned,Amount Refunded\n';
 
     for (const row of rows) {
       // Format timestamps cleanly
-      const formattedDate = new Date(row.sale_date).toISOString().replace('T', ' ').substring(0, 19);
-      // Escape SKU and Product Name to protect against quotes and commas breaking columns
-      const escapedSKU = `"${row.sku.replace(/"/g, '""')}"`;
+      const formattedDate = new Date(row.sold_at).toISOString().replace('T', ' ').substring(0, 19);
+      // Escape Product Name to protect against quotes and commas breaking columns
       const escapedName = `"${row.product_name.replace(/"/g, '""')}"`;
       
-      csvString += `${formattedDate},${escapedSKU},${escapedName},${row.quantity},${row.unit_price},${row.unit_cost},${row.gross_revenue},${row.total_cost},${row.net_profit}\n`;
+      csvString += `${formattedDate},${escapedName},${row.quantity_sold},${row.quantity_unit},${row.total_revenue},${row.buying_price},${row.total_cost},${row.net_profit},${row.payment_method},${row.payment_status},${row.quantity_returned},${row.amount_refunded}\n`;
     }
 
     // Set response headers to force download in browser

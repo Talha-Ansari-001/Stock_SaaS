@@ -62,6 +62,7 @@ export default function InventoryView({ token, products, isLoaded, refreshInvent
           price: parseFloat(form.price),
           buying_price: parseFloat(form.buying_price),
           default_unit: form.default_unit,
+          allowed_units: form.default_unit === 'Bags' ? 'Bags,Kg' : form.default_unit,
           kg_per_unit: form.default_unit === 'Bags' ? (parseFloat(form.kg_per_unit) || 50.00) : 1.00,
           supplier_name: form.supplier_name || null
         }),

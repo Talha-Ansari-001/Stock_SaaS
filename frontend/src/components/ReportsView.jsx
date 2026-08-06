@@ -319,7 +319,7 @@ export default function ReportsView({ salesHistory = [], isLoaded = false, refre
                         )}
                         {parseFloat(log.quantity_returned || 0) > 0 && (
                           <span className="text-[10px] font-mono text-red-500 font-medium">
-                            Returned: {parseFloat(log.quantity_returned).toFixed(2)} {log.quantity_unit}
+                            Returned: {parseFloat(log.quantity_returned).toFixed(2)} {parsedItems[0]?.quantity_unit || 'units'}
                           </span>
                         )}
                       </div>
@@ -726,6 +726,7 @@ export default function ReportsView({ salesHistory = [], isLoaded = false, refre
                     className="w-full bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-900 dark:text-white outline-none cursor-pointer"
                   >
                     <option value="Paid">Paid</option>
+                    <option value="Partial">Partial</option>
                     <option value="Unpaid">Unpaid</option>
                   </select>
                 </div>

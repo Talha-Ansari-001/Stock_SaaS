@@ -25,34 +25,56 @@ router.post('/bulk-import', async (req, res) => {
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
-    // Map product objects into nested array format suitable for bulk insert:
-    // INSERT INTO products (...) VALUES ? takes an array of arrays [[val1, val2], [val1, val2]]
-    const values = products.map(p => [
-      tenantId,
-      p.sku,
-      p.name,
-      p.description || '',
-      parseFloat(p.price || 0),
-      parseFloat(p.cost || 0),
-      parseInt(p.stock || 0),
-      parseInt(p.low_stock_threshold || 5)
-    ]);
+    let importedCount = 0;
 
-    const query = `
-      INSERT INTO products (tenant_id, sku, name, description, price, cost, stock, low_stock_threshold) 
-      VALUES ?
-    `;
+    for (const p of products) {
+      if (!p.name || p.name.trim() === '') {
+        throw new Error(`Product name is required. Got empty name at row index ${importedCount}.`);
+      }
 
-    // Execute bulk insert query
-    const [result] = await connection.query(query, [values]);
+      const name = p.name.trim();
+      const quantity = parseFloat(p.quantity || 0);
+      const price = parseFloat(p.price || 0);
+      const buyingPrice = parseFloat(p.buying_price || 0);
+      const kgPerUnit = parseFloat(p.kg_per_unit || 1);
+      const defaultUnit = p.default_unit || 'Piece';
+      const allowedUnits = p.allowed_units || 'Piece';
+      const supplierName = p.supplier_name || null;
+
+      // Check if product with same name already exists for this tenant
+      const [existing] = await connection.execute(
+        'SELECT id FROM products WHERE name = ? AND tenant_id = ?',
+        [name, tenantId]
+      );
+
+      if (existing.length > 0) {
+        // Replenish existing product stock
+        await connection.execute(
+          `UPDATE products 
+           SET quantity = quantity + ?, price = ?, buying_price = ?, 
+               kg_per_unit = ?, default_unit = ?, allowed_units = ?, supplier_name = ?
+           WHERE id = ? AND tenant_id = ?`,
+          [quantity, price, buyingPrice, kgPerUnit, defaultUnit, allowedUnits, supplierName, existing[0].id, tenantId]
+        );
+      } else {
+        // Insert new product
+        await connection.execute(
+          `INSERT INTO products (tenant_id, name, quantity, price, buying_price, kg_per_unit, default_unit, allowed_units, supplier_name) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [tenantId, name, quantity, price, buyingPrice, kgPerUnit, defaultUnit, allowedUnits, supplierName]
+        );
+      }
+
+      importedCount++;
+    }
 
     // Commit changes
     await connection.commit();
 
     res.status(201).json({
       success: true,
-      message: `Successfully imported ${result.affectedRows} products`,
-      importedCount: result.affectedRows
+      message: `Successfully imported ${importedCount} products`,
+      importedCount
     });
 
   } catch (error) {
@@ -68,7 +90,7 @@ router.post('/bulk-import', async (req, res) => {
 
     if (error.code === 'ER_DUP_ENTRY') {
       return res.status(400).json({ 
-        error: 'Bulk import failed due to duplicate entry. One or more SKU codes already exist for this business.' 
+        error: 'Bulk import failed due to duplicate entry. One or more product names already exist for this business.' 
       });
     }
 
