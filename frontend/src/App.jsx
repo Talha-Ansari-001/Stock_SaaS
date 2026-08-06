@@ -8,6 +8,14 @@ import ReportsView from './components/ReportsView';
 import ExpensesView from './components/ExpensesView'; // 💸 Imported Expenses Engine
 import LoginGate from './components/LoginGate';
 
+const PAGE_META = {
+  dashboard: { label: 'Overview Dashboard', icon: 'bi-grid-1x2-fill' },
+  inventory:  { label: 'Inventory',          icon: 'bi-boxes' },
+  sales:      { label: 'Sales Terminal',     icon: 'bi-cart3' },
+  expenses:   { label: 'Expenses',           icon: 'bi-wallet2' },
+  reports:    { label: 'Reports',            icon: 'bi-bar-chart-line-fill' },
+};
+
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem('trader_token') || null);
   const [activePage, setActivePage] = useState('dashboard');
@@ -23,7 +31,7 @@ export default function App() {
 
   const [isDark, setIsDark] = useState(() => {
     const saved = localStorage.getItem('theme');
-    return saved ? saved === 'dark' : true;
+    return saved ? saved === 'dark' : false; // default light
   });
 
   // Base Headers Setup
@@ -39,8 +47,8 @@ export default function App() {
       const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/products`, { headers });
       const data = await res.json();
       setProducts(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.error('Inventory cache synchronization critical failure:', err);
+    } catch {
+      console.error('Inventory fetch failed');
     } finally {
       setIsInventoryLoaded(true);
     }
@@ -167,57 +175,127 @@ export default function App() {
     }
   };
 
+  const currentMeta = PAGE_META[activePage] || PAGE_META.dashboard;
+
   return (
-    <div className="min-h-screen flex bg-base text-text-primary transition-colors duration-200">
+    <div className="app-shell">
       
-      {/* MOBILE APPLICATION HEADER INTERACTIVE LAYER */}
-      <header className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-panel border-b border-border-subtle flex items-center justify-between px-4 z-40">
-        <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-full bg-text-primary animate-pulse" />
-          <span className="font-sans font-bold text-sm tracking-tight text-text-primary">TRADER//OS</span>
-        </div>
-        <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="p-2 text-text-muted hover:text-text-primary transition-colors cursor-pointer"
-        >
-          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            {mobileMenuOpen ? (
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            ) : (
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-            )}
-          </svg>
-        </button>
-      </header>
+      {/* ── SIDEBAR ── */}
+      <Sidebar
+        activePage={activePage}
+        setActivePage={(page) => {
+          setActivePage(page);
+          setMobileMenuOpen(false);
+        }}
+        isDark={isDark}
+        toggleTheme={() => setIsDark(!isDark)}
+        onLogout={() => {
+          localStorage.removeItem('trader_token');
+          setToken(null);
+        }}
+      />
 
-      {/* RESPONSIVE NAVIGATION SHELL BLOCK */}
-      <div className={`
-        fixed inset-y-0 left-0 z-50 w-64 transform bg-panel border-r border-border-subtle lg:static lg:translate-x-0 transition-transform duration-300 ease-in-out
-        ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
-      `}>
-        <Sidebar
-          activePage={activePage}
-          setActivePage={(page) => {
-            setActivePage(page);
-            setMobileMenuOpen(false);
-          }}
-          isDark={isDark}
-          toggleTheme={() => setIsDark(!isDark)}
-          onLogout={() => {
-            localStorage.removeItem('trader_token');
-            setToken(null);
-          }}
-        />
-      </div>
-
+      {/* Mobile Overlay */}
       {mobileMenuOpen && (
-        <div onClick={() => setMobileMenuOpen(false)} className="fixed inset-0 bg-black/40 backdrop-blur-xs z-40 lg:hidden" />
+        <div
+          className="sidebar-overlay"
+          onClick={() => setMobileMenuOpen(false)}
+        />
       )}
 
-      {/* MAIN CONTENT FRAME WORKSPACE */}
-      <main className="flex-1 w-full p-4 sm:p-6 md:p-8 lg:p-10 mx-auto max-w-7xl pt-24 lg:pt-10 overflow-hidden">
-        {renderContent()}
-      </main>
+      {/* ── MAIN CONTENT ── */}
+      <div className="app-main">
+        
+        {/* TOP NAVBAR */}
+        <header className="app-navbar">
+          {/* Left: Hamburger + Breadcrumb */}
+          <div className="navbar-left">
+            <button
+              className="navbar-icon-btn"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              style={{ display: 'none' }}
+              id="mobile-menu-btn"
+            >
+              <i className={`bi ${mobileMenuOpen ? 'bi-x-lg' : 'bi-list'}`} />
+            </button>
+
+            {/* Breadcrumb */}
+            <nav className="navbar-breadcrumb" aria-label="breadcrumb">
+              <i className="bi bi-house" />
+              <span className="bc-sep">›</span>
+              <span>TraderOS</span>
+              <span className="bc-sep">›</span>
+              <span className="bc-current">
+                <i className={`bi ${currentMeta.icon} me-1`} />
+                {currentMeta.label}
+              </span>
+            </nav>
+          </div>
+
+          {/* Right: Search + Actions */}
+          <div className="navbar-right">
+            {/* Search */}
+            {/* <div className="navbar-search-wrap d-none d-md-block">
+              <i className="bi bi-search navbar-search-icon" />
+              <input
+                type="search"
+                className="navbar-search"
+                placeholder="Search anything..."
+              />
+            </div> */}
+
+            {/* Refresh */}
+            <button
+              className="navbar-icon-btn"
+              title="Refresh data"
+              onClick={() => {
+                loadProducts();
+                loadSalesHistory();
+                loadExpenses();
+              }}
+            >
+              <i className="bi bi-arrow-clockwise" />
+            </button>
+
+            {/* Notifications (UI only) */}
+            <button className="navbar-icon-btn" title="Notifications" style={{ position: 'relative' }}>
+              <i className="bi bi-bell" />
+              <span style={{
+                position: 'absolute',
+                top: 4, right: 4,
+                width: 7, height: 7,
+                background: 'var(--danger)',
+                borderRadius: '50%',
+                border: '1.5px solid #fff'
+              }} />
+            </button>
+
+            {/* Avatar */}
+            <div className="navbar-avatar" title="Profile">
+              T
+            </div>
+          </div>
+        </header>
+
+        {/* PAGE CONTENT */}
+        <main className="app-content" key={activePage}>
+          {renderContent()}
+        </main>
+      </div>
+
+      {/* Inject mobile button visibility via style tag */}
+      <style>{`
+        @media (max-width: 1024px) {
+          #mobile-menu-btn { display: flex !important; }
+          .app-sidebar.open { transform: translateX(0) !important; }
+        }
+        .app-sidebar {
+          transform: ${mobileMenuOpen ? 'translateX(0)' : ''};
+        }
+        @media (max-width: 1024px) {
+          .app-sidebar { transform: ${mobileMenuOpen ? 'translateX(0)' : 'translateX(-100%)'}; }
+        }
+      `}</style>
     </div>
   );
 }

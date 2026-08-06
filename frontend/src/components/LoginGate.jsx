@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 export default function LoginGate({ onLogin }) {
   const [isRegisterMode, setIsRegisterMode] = useState(false); // ⚡ Toggle state
@@ -7,6 +7,7 @@ export default function LoginGate({ onLogin }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -53,138 +54,287 @@ export default function LoginGate({ onLogin }) {
   };
 
   return (
-    <div className="min-h-screen w-full bg-base text-text-primary flex items-center justify-center p-4 sm:p-6 md:p-8 transition-colors duration-300 relative overflow-hidden">
-      
-      {/* ── BACKGROUND VISUAL FLUIDITY ELEMENTS ── */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden select-none opacity-40">
-        <div className="absolute top-[-10%] left-[-10%] w-[40vw] h-[40vw] rounded-full bg-zinc-500/5 dark:bg-zinc-800/10 blur-[120px] animate-pulse-glow" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40vw] h-[40vw] rounded-full bg-zinc-400/5 dark:bg-zinc-700/10 blur-[120px] animate-pulse-glow" style={{ animationDelay: '1.2s' }} />
-      </div>
+    <div style={{
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #EEF0FB 0%, #F8F9FB 40%, #E8F4FD 100%)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '20px',
+      fontFamily: '"Poppins", sans-serif',
+      position: 'relative',
+      overflow: 'hidden',
+    }}>
 
-      {/* ── CENTRALIZED LOGIN/REGISTRATION TERMINAL CARD ── */}
-      <div className="w-full max-w-md bg-panel border border-border-subtle rounded-2xl p-6 sm:p-10 shadow-2xl relative z-10 animate-fade-in transition-colors duration-300">
-        
-        {/* Header Block branding layout */}
-        <div className="space-y-2 text-center mb-8">
-          <div className="inline-flex items-center justify-center px-3 py-1 bg-surface border border-border-subtle rounded-full text-[10px] tracking-widest font-mono text-text-muted uppercase">
-            {isRegisterMode ? 'provision_node / v2.11' : 'secure_gateway / v2.11'}
+      {/* Background decorative blobs */}
+      <div style={{
+        position: 'absolute', top: '-80px', left: '-80px',
+        width: '400px', height: '400px',
+        background: 'radial-gradient(circle, rgba(47,62,158,0.08) 0%, transparent 70%)',
+        borderRadius: '50%', pointerEvents: 'none'
+      }} />
+      <div style={{
+        position: 'absolute', bottom: '-80px', right: '-80px',
+        width: '500px', height: '500px',
+        background: 'radial-gradient(circle, rgba(104,117,200,0.08) 0%, transparent 70%)',
+        borderRadius: '50%', pointerEvents: 'none'
+      }} />
+
+      <div style={{
+        width: '100%', maxWidth: '440px', position: 'relative', zIndex: 1,
+        animation: 'fadeIn 0.5s ease both'
+      }}>
+
+        {/* Brand Header */}
+        <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+          <div style={{
+            width: '56px', height: '56px',
+            background: 'linear-gradient(135deg, #2F3E9E 0%, #6875C8 100%)',
+            borderRadius: '14px',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            margin: '0 auto 16px',
+            boxShadow: '0 8px 24px rgba(47,62,158,0.3)',
+          }}>
+            <i className="bi bi-activity" style={{ fontSize: '26px', color: '#fff' }} />
           </div>
-          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-text-primary font-sans">
-            TRADER.OS
-          </h1>
-          <p className="text-xs sm:text-sm text-text-muted font-sans tracking-tight">
-            {isRegisterMode 
-              ? 'Provision a new tenant workstation deployment context.' 
-              : 'Enter your workstation credentials to authorize terminal access.'}
+          <h1 style={{
+            fontSize: '26px', fontWeight: '800', color: '#1A1D23',
+            margin: '0 0 6px', letterSpacing: '-0.03em'
+          }}>TraderOS</h1>
+          <p style={{ fontSize: '13.5px', color: '#9AA5B4', margin: 0, fontWeight: '400' }}>
+            {isRegisterMode
+              ? 'Create your business workspace'
+              : 'Sign in to your workspace'}
           </p>
         </div>
 
-        {/* Action Form Element */}
-        <form onSubmit={handleSubmit} className="space-y-5">
-          
-          {/* Business Name Field (Only visible in Register Mode) */}
-          {isRegisterMode && (
-            <div className="space-y-1.5 text-left animate-fade-in">
-              <label className="text-xs tracking-tight text-text-secondary font-sans font-medium block">
-                Business Organization Name
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. Acme Corporation"
-                required
-                disabled={isSubmitting}
-                value={businessName}
-                onChange={(e) => setBusinessName(e.target.value)}
-                className="w-full bg-surface border border-border-subtle focus:border-zinc-500 dark:focus:border-zinc-400 rounded-xl transition-all px-4 py-3.5 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none disabled:opacity-50"
-              />
-            </div>
-          )}
+        {/* Card */}
+        <div style={{
+          background: '#ffffff',
+          borderRadius: '20px',
+          padding: '32px',
+          boxShadow: '0 4px 24px rgba(47,62,158,0.1), 0 1px 4px rgba(0,0,0,0.04)',
+          border: '1px solid #E9ECEF',
+        }}>
 
-          {/* Email input field wrapper */}
-          <div className="space-y-1.5 text-left">
-            <label className="text-xs tracking-tight text-text-secondary font-sans font-medium block">
-              Workstation Email
-            </label>
-            <input
-              type="email"
-              placeholder="name@business.com"
-              required
-              disabled={isSubmitting}
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-surface border border-border-subtle focus:border-zinc-500 dark:focus:border-zinc-400 rounded-xl transition-all px-4 py-3.5 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none disabled:opacity-50"
-            />
+          {/* Mode Tab */}
+          <div style={{
+            display: 'flex',
+            background: '#F0F2F5',
+            borderRadius: '10px',
+            padding: '4px',
+            marginBottom: '24px',
+            gap: '4px',
+          }}>
+            {[
+              { label: 'Sign In', mode: false },
+              { label: 'Register', mode: true },
+            ].map(({ label, mode }) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => { setIsRegisterMode(mode); setError(''); setBusinessName(''); }}
+                style={{
+                  flex: 1, padding: '8px', borderRadius: '8px', border: 'none',
+                  background: isRegisterMode === mode ? '#fff' : 'transparent',
+                  color: isRegisterMode === mode ? '#2F3E9E' : '#9AA5B4',
+                  fontWeight: isRegisterMode === mode ? '700' : '500',
+                  fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit',
+                  transition: 'all 0.2s ease',
+                  boxShadow: isRegisterMode === mode ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+                }}
+              >
+                {label}
+              </button>
+            ))}
           </div>
 
-          {/* Password input field wrapper */}
-          <div className="space-y-1.5 text-left">
-            <label className="text-xs tracking-tight text-text-secondary font-sans font-medium block">
-              Access Token / Password
-            </label>
-            <input
-              type="password"
-              placeholder="••••••••••••"
-              required
-              disabled={isSubmitting}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-surface border border-border-subtle focus:border-zinc-500 dark:focus:border-zinc-400 rounded-xl transition-all px-4 py-3.5 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none disabled:opacity-50"
-            />
-          </div>
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
-          {/* Error Message Layout Display */}
-          {error && (
-            <div className="p-3.5 bg-red-500/10 border border-red-500/20 rounded-xl text-left flex items-start gap-3 animate-fade-in">
-              <svg className="w-4 h-4 text-red-500 dark:text-red-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-              <span className="text-xs font-sans text-red-500 dark:text-red-400 leading-tight tracking-tight">
-                {error}
-              </span>
-            </div>
-          )}
-
-          {/* Submission Action Button */}
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full bg-text-primary text-panel font-medium text-sm tracking-tight rounded-xl py-3.5 transition-all duration-200 hover:opacity-90 active:scale-[0.99] disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer mt-2"
-          >
-            {isSubmitting ? (
-              <>
-                <svg className="animate-spin h-4 w-4 text-panel" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                <span>{isRegisterMode ? 'Deploying Tenant...' : 'Authorizing Session...'}</span>
-              </>
-            ) : (
-              <span>{isRegisterMode ? 'Register Station' : 'Establish Session'}</span>
+            {/* Business Name (register only) */}
+            {isRegisterMode && (
+              <div style={{ animation: 'fadeIn 0.3s ease both' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#4A5568', marginBottom: '6px' }}>
+                  Business Name
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <i className="bi bi-building" style={{
+                    position: 'absolute', left: '13px', top: '50%',
+                    transform: 'translateY(-50%)', color: '#9AA5B4', fontSize: '14px'
+                  }} />
+                  <input
+                    type="text"
+                    placeholder="e.g. Acme Trading Co."
+                    required
+                    disabled={isSubmitting}
+                    value={businessName}
+                    onChange={(e) => setBusinessName(e.target.value)}
+                    style={{
+                      width: '100%', padding: '10px 14px 10px 38px',
+                      background: '#F0F2F5', border: '1.5px solid #E9ECEF',
+                      borderRadius: '10px', fontSize: '13.5px', color: '#1A1D23',
+                      fontFamily: 'inherit', outline: 'none', transition: 'all 0.2s ease',
+                      boxSizing: 'border-box',
+                    }}
+                    onFocus={e => { e.target.style.borderColor = '#2F3E9E'; e.target.style.background = '#fff'; e.target.style.boxShadow = '0 0 0 3px rgba(47,62,158,0.1)'; }}
+                    onBlur={e => { e.target.style.borderColor = '#E9ECEF'; e.target.style.background = '#F0F2F5'; e.target.style.boxShadow = 'none'; }}
+                  />
+                </div>
+              </div>
             )}
-          </button>
-        </form>
 
-        {/* ── DUAL-MODE SWITCH TOGGLE LINK ── */}
-        <div className="mt-5 text-center">
-          <button
-            type="button"
-            onClick={handleModeToggle}
-            className="text-xs font-sans text-text-muted hover:text-text-primary underline underline-offset-4 transition-colors duration-200 cursor-pointer"
-          >
-            {isRegisterMode 
-              ? 'Already have an environment? Sign in instead' 
-              : 'Need a new deployment? Register organization'}
-          </button>
-        </div>
+            {/* Email */}
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#4A5568', marginBottom: '6px' }}>
+                Email Address
+              </label>
+              <div style={{ position: 'relative' }}>
+                <i className="bi bi-envelope" style={{
+                  position: 'absolute', left: '13px', top: '50%',
+                  transform: 'translateY(-50%)', color: '#9AA5B4', fontSize: '14px'
+                }} />
+                <input
+                  type="email"
+                  placeholder="name@business.com"
+                  required
+                  disabled={isSubmitting}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  style={{
+                    width: '100%', padding: '10px 14px 10px 38px',
+                    background: '#F0F2F5', border: '1.5px solid #E9ECEF',
+                    borderRadius: '10px', fontSize: '13.5px', color: '#1A1D23',
+                    fontFamily: 'inherit', outline: 'none', transition: 'all 0.2s ease',
+                    boxSizing: 'border-box',
+                  }}
+                  onFocus={e => { e.target.style.borderColor = '#2F3E9E'; e.target.style.background = '#fff'; e.target.style.boxShadow = '0 0 0 3px rgba(47,62,158,0.1)'; }}
+                  onBlur={e => { e.target.style.borderColor = '#E9ECEF'; e.target.style.background = '#F0F2F5'; e.target.style.boxShadow = 'none'; }}
+                />
+              </div>
+            </div>
 
-        {/* Device Context Footer block layout */}
-        <div className="mt-6 pt-6 border-t border-border-subtle/40 text-center">
-          <p className="text-[10px] text-text-muted font-mono tracking-tight lowercase">
-            connection_status: encrypted_tls_1.3
+            {/* Password */}
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#4A5568', marginBottom: '6px' }}>
+                Password
+              </label>
+              <div style={{ position: 'relative' }}>
+                <i className="bi bi-lock" style={{
+                  position: 'absolute', left: '13px', top: '50%',
+                  transform: 'translateY(-50%)', color: '#9AA5B4', fontSize: '14px'
+                }} />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="••••••••••••"
+                  required
+                  disabled={isSubmitting}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  style={{
+                    width: '100%', padding: '10px 40px 10px 38px',
+                    background: '#F0F2F5', border: '1.5px solid #E9ECEF',
+                    borderRadius: '10px', fontSize: '13.5px', color: '#1A1D23',
+                    fontFamily: 'inherit', outline: 'none', transition: 'all 0.2s ease',
+                    boxSizing: 'border-box',
+                  }}
+                  onFocus={e => { e.target.style.borderColor = '#2F3E9E'; e.target.style.background = '#fff'; e.target.style.boxShadow = '0 0 0 3px rgba(47,62,158,0.1)'; }}
+                  onBlur={e => { e.target.style.borderColor = '#E9ECEF'; e.target.style.background = '#F0F2F5'; e.target.style.boxShadow = 'none'; }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  style={{
+                    position: 'absolute', right: '12px', top: '50%',
+                    transform: 'translateY(-50%)', background: 'none', border: 'none',
+                    color: '#9AA5B4', cursor: 'pointer', fontSize: '14px', padding: '2px',
+                  }}
+                >
+                  <i className={`bi ${showPassword ? 'bi-eye-slash' : 'bi-eye'}`} />
+                </button>
+              </div>
+            </div>
+
+            {/* Error */}
+            {error && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '8px',
+                padding: '11px 14px', borderRadius: '10px',
+                background: '#FDECEA', border: '1px solid rgba(234,84,85,0.25)',
+                color: '#dc2626', fontSize: '13px',
+                animation: 'fadeIn 0.25s ease both',
+              }}>
+                <i className="bi bi-exclamation-circle-fill" style={{ flexShrink: 0 }} />
+                <span>{error}</span>
+              </div>
+            )}
+
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              style={{
+                width: '100%', padding: '12px',
+                background: 'linear-gradient(135deg, #2F3E9E 0%, #6875C8 100%)',
+                border: 'none', borderRadius: '10px',
+                color: '#fff', fontSize: '14px', fontWeight: '700',
+                cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                opacity: isSubmitting ? 0.7 : 1,
+                transition: 'all 0.2s ease',
+                fontFamily: 'inherit',
+                boxShadow: '0 4px 16px rgba(47,62,158,0.3)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                marginTop: '4px',
+              }}
+            >
+              {isSubmitting ? (
+                <>
+                  <span style={{
+                    width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)',
+                    borderTopColor: '#fff', borderRadius: '50%',
+                    animation: 'spin 0.7s linear infinite', flexShrink: 0
+                  }} />
+                  <span>{isRegisterMode ? 'Creating Account...' : 'Signing In...'}</span>
+                </>
+              ) : (
+                <>
+                  <i className={`bi ${isRegisterMode ? 'bi-person-plus' : 'bi-box-arrow-in-right'}`} />
+                  <span>{isRegisterMode ? 'Create Account' : 'Sign In'}</span>
+                </>
+              )}
+            </button>
+          </form>
+
+          {/* Mode Toggle Link */}
+          <p style={{
+            textAlign: 'center', marginTop: '20px', marginBottom: 0,
+            fontSize: '12.5px', color: '#9AA5B4'
+          }}>
+            {isRegisterMode ? 'Already have an account? ' : "Don't have an account? "}
+            <button
+              type="button"
+              onClick={handleModeToggle}
+              style={{
+                background: 'none', border: 'none', color: '#2F3E9E',
+                fontWeight: '600', cursor: 'pointer', textDecoration: 'underline',
+                fontSize: '12.5px', fontFamily: 'inherit', padding: 0,
+              }}
+            >
+              {isRegisterMode ? 'Sign in' : 'Register'}
+            </button>
           </p>
         </div>
 
+        {/* Footer */}
+        <p style={{ textAlign: 'center', marginTop: '20px', fontSize: '11px', color: '#CBD5E0' }}>
+          <i className="bi bi-shield-check me-1" />
+          Secured with TLS encryption
+        </p>
       </div>
+
+      <style>{`
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+      `}</style>
     </div>
   );
 }

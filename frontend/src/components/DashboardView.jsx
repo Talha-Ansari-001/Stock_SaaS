@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
 const formatSaleTimestamp = (dateStr) => {
   if (!dateStr) return "Timestamps offline";
@@ -46,7 +46,6 @@ export default function TraderDashboard({
 
   // Form States
   const [newProduct, setNewProduct] = useState({ name: '', quantity: '', price: '' });
-  const [newSale, setNewSale] = useState({ product_id: '', quantity_to_sell: '' });
 
   const headers = {
     'Content-Type': 'application/json',
@@ -126,7 +125,7 @@ export default function TraderDashboard({
         setNewProduct({ name: '', quantity: '', price: '' });
         await triggerRefresh();
       }
-    } catch (err) {
+    } catch {
       alert("Failed to write inventory asset.");
     }
   };
@@ -209,241 +208,295 @@ export default function TraderDashboard({
 
   const maxRevenue = topProducts.length > 0 ? Math.max(...topProducts.map(p => p.revenue)) : 0;
 
+  // Loading State
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#f8f9fa] dark:bg-[#0c0c0e] text-zinc-400 flex items-center justify-center font-mono text-xs uppercase tracking-widest">
-        Synchronizing Command Center Ledger Workspace...
+      <div className="loading-state">
+        <div className="spinner-modern" />
+        <p className="loading-text">Synchronizing dashboard data...</p>
       </div>
     );
   }
 
+  // Error State
   if (error) {
     return (
-      <div className="min-h-screen bg-[#f8f9fa] dark:bg-[#0c0c0e] text-red-500 flex flex-col items-center justify-center p-4">
-        <div className="border border-red-200 dark:border-red-950/40 bg-white dark:bg-[#121214] p-6 max-w-md w-full text-center rounded-xl shadow-sm">
-          <h2 className="text-xs font-mono font-bold tracking-wider uppercase mb-2">Workspace Error Boundary</h2>
-          <p className="text-xs text-zinc-500 font-mono break-words bg-zinc-50 dark:bg-zinc-900 p-3 rounded mb-4">{error}</p>
-          <button onClick={triggerRefresh} className="w-full bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 py-2 rounded-lg text-xs font-mono transition-all uppercase font-semibold">
-            Retry Connection Request
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '300px' }}>
+        <div className="card-modern" style={{ maxWidth: '400px', width: '100%' }}>
+          <div className="card-body-modern" style={{ textAlign: 'center', padding: '32px' }}>
+            <i className="bi bi-exclamation-triangle" style={{ fontSize: '40px', color: 'var(--danger)', marginBottom: '12px', display: 'block' }} />
+            <h3 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px' }}>Connection Error</h3>
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '20px' }}>{error}</p>
+            <button onClick={triggerRefresh} className="btn-os primary">
+              <i className="bi bi-arrow-clockwise" /> Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const statCards = [
+    {
+      label: 'Total Billed',
+      value: `₹${totalBilled.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      icon: 'bi-currency-rupee',
+      iconClass: 'success',
+      cardClass: 'success',
+      footer: 'Net order totals',
+    },
+    {
+      label: 'Cash Received',
+      value: `₹${receivedCash.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      icon: 'bi-wallet2',
+      iconClass: 'info',
+      cardClass: 'info',
+      footer: 'Cash in hand',
+    },
+    {
+      label: 'Dues Pending',
+      value: `₹${duesPending.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      icon: 'bi-clock-history',
+      iconClass: 'warning',
+      cardClass: 'warning',
+      footer: 'Credit / Unpaid',
+    },
+    {
+      label: 'Net Profit',
+      value: `₹${Math.abs(netProfit).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      icon: netProfit >= 0 ? 'bi-graph-up-arrow' : 'bi-graph-down-arrow',
+      iconClass: netProfit >= 0 ? 'success' : 'danger',
+      cardClass: netProfit >= 0 ? 'success' : 'danger',
+      footer: netProfit >= 0 ? 'Profit this period' : 'Loss this period',
+      valueClass: netProfit >= 0 ? 'success' : 'danger',
+    },
+    {
+      label: "Today's Sales",
+      value: `₹${todaySales.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      icon: 'bi-calendar-check',
+      iconClass: 'purple',
+      cardClass: 'purple',
+      footer: 'Net revenue today',
+    },
+    {
+      label: 'Stock (Bags)',
+      value: totalStockBags % 1 === 0 ? totalStockBags.toFixed(0) : totalStockBags.toFixed(2),
+      icon: 'bi-boxes',
+      iconClass: 'neutral',
+      cardClass: 'brand',
+      footer: `${activeSKUs} active SKUs`,
+    },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', animation: 'fadeIn 0.4s ease both' }}>
+
+      {/* Page Header */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Command Center</h1>
+          <p className="page-subtitle">Live business overview & key metrics</p>
+        </div>
+        <div className="page-actions">
+          <button onClick={triggerRefresh} className="btn-os outline sm">
+            <i className="bi bi-arrow-clockwise" /> Refresh
           </button>
         </div>
       </div>
-    );
-  }
 
-  return (
-    <div className="space-y-8 animate-fade-in text-left">
-      {/* Dashboard Top Title Bar */}
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-white font-sans">Command Center</h1>
-        <p className="text-sm tracking-tight text-zinc-500 dark:text-zinc-400 font-mono lowercase">overview / live_metrics_dashboard</p>
-      </header>
-
-      {/* 📊 WIDGET CONTROL GRID (6 INTERFACES) */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        {/* Card 1: Total Billed */}
-        <div className="bg-white dark:bg-[#121214] border border-zinc-200 dark:border-[#1f1f23] p-4 rounded-xl shadow-sm flex flex-col justify-between min-h-[115px]">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] font-mono font-bold tracking-wider text-zinc-400 uppercase">Total Billed</span>
-            <div className="p-1.5 bg-emerald-50 dark:bg-emerald-950/30 rounded-lg text-emerald-500 text-xs">💵</div>
+      {/* ── STAT CARDS ROW ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px' }}>
+        {statCards.map((card, i) => (
+          <div key={i} className={`stat-card ${card.cardClass}`} style={{ animationDelay: `${i * 0.05}s` }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div className={`stat-icon ${card.iconClass}`}>
+                <i className={`bi ${card.icon}`} />
+              </div>
+            </div>
+            <div>
+              <div className="stat-label">{card.label}</div>
+              <div className={`stat-value ${card.valueClass || ''}`}>{card.value}</div>
+              <div className="stat-footer">{card.footer}</div>
+            </div>
           </div>
-          <div className="my-2">
-            <span className="text-lg font-bold font-mono text-emerald-600 dark:text-emerald-400">
-              ₹{totalBilled.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-          </div>
-          <span className="text-[9px] font-mono text-zinc-400 lowercase">Order totals</span>
-        </div>
-
-        {/* Card 2: Received */}
-        <div className="bg-white dark:bg-[#121214] border border-zinc-200 dark:border-[#1f1f23] p-4 rounded-xl shadow-sm flex flex-col justify-between min-h-[115px]">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] font-mono font-bold tracking-wider text-zinc-400 uppercase">Received</span>
-            <div className="p-1.5 bg-teal-50 dark:bg-teal-950/30 rounded-lg text-teal-500 text-xs">📊</div>
-          </div>
-          <div className="my-2">
-            <span className="text-lg font-bold font-mono text-teal-600 dark:text-teal-400">
-              ₹{receivedCash.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-          </div>
-          <span className="text-[9px] font-mono text-zinc-400 lowercase">Cash in hand</span>
-        </div>
-
-        {/* Card 3: Dues Pending */}
-        <div className="bg-white dark:bg-[#121214] border border-zinc-200 dark:border-[#1f1f23] p-4 rounded-xl shadow-sm flex flex-col justify-between min-h-[115px]">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] font-mono font-bold tracking-wider text-zinc-400 uppercase">Dues Pending</span>
-            <div className="p-1.5 bg-amber-50 dark:bg-amber-950/30 rounded-lg text-amber-500 text-xs">⚠️</div>
-          </div>
-          <div className="my-2">
-            <span className="text-lg font-bold font-mono text-amber-600 dark:text-amber-500">
-              ₹{duesPending.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-          </div>
-          <span className="text-[9px] font-mono text-zinc-400 lowercase">Credit / Unpaid</span>
-        </div>
-
-        {/* Card 4: Net Profit or Dynamic Loss */}
-        <div className="bg-white dark:bg-[#121214] border border-zinc-200 dark:border-[#1f1f23] p-4 rounded-xl shadow-sm flex flex-col justify-between min-h-[115px]">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] font-mono font-bold tracking-wider text-zinc-400 uppercase">Net Profit</span>
-            <div className="p-1.5 bg-blue-50 dark:bg-blue-950/30 rounded-lg text-blue-500 text-xs">📈</div>
-          </div>
-          <div className="my-2">
-            <span className={`text-lg font-bold font-mono ${netProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
-              ₹{Math.abs(netProfit).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-          </div>
-          <span className="text-[9px] font-mono text-zinc-400 lowercase">
-            {netProfit >= 0 ? 'Profit' : 'Loss'}
-          </span>
-        </div>
-
-        {/* Card 5: Today's Sales */}
-        <div className="bg-white dark:bg-[#121214] border border-zinc-200 dark:border-[#1f1f23] p-4 rounded-xl shadow-sm flex flex-col justify-between min-h-[115px]">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] font-mono font-bold tracking-wider text-zinc-400 uppercase">Today's Sales</span>
-            <div className="p-1.5 bg-purple-50 dark:bg-purple-950/30 rounded-lg text-purple-500 text-xs">📅</div>
-          </div>
-          <div className="my-2">
-            <span className="text-lg font-bold font-mono text-purple-600 dark:text-purple-400">
-              ₹{todaySales.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-          </div>
-          <span className="text-[9px] font-mono text-zinc-400 lowercase">Today</span>
-        </div>
-
-        {/* Card 6: Stock Standing Metrics */}
-        <div className="bg-white dark:bg-[#121214] border border-zinc-200 dark:border-[#1f1f23] p-4 rounded-xl shadow-sm flex flex-col justify-between min-h-[115px]">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] font-mono font-bold tracking-wider text-zinc-400 uppercase">Stock (Bags)</span>
-            <div className="p-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-zinc-500 text-xs">📦</div>
-          </div>
-          <div className="my-2">
-            <span className="text-lg font-bold font-mono text-zinc-800 dark:text-zinc-200">
-              {totalStockBags % 1 === 0 ? totalStockBags.toFixed(0) : totalStockBags.toFixed(2)}
-            </span>
-          </div>
-          <span className="text-[9px] font-mono text-zinc-400 lowercase">{activeSKUs} SKUs active</span>
-        </div>
+        ))}
       </div>
 
-      {/* 📊 MIDDLE ANALYTICS GRID */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Top Products Card */}
-        <div className="bg-white dark:bg-[#121214] border border-zinc-200 dark:border-[#1f1f23] rounded-xl shadow-sm p-6 text-left flex flex-col justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 font-sans">Top Products</h2>
-            <p className="text-xs text-zinc-400 dark:text-zinc-500 font-mono lowercase mb-6">by revenue generated</p>
+      {/* ── ANALYTICS ROW ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '20px' }}>
 
-            <div className="space-y-4">
-              {topProducts.length === 0 ? (
-                <div className="text-xs text-zinc-400 dark:text-zinc-500 font-mono italic py-4">No revenue generated yet.</div>
-              ) : (
-                topProducts.slice(0, 5).map((p, idx) => {
+        {/* Top Products Card */}
+        <div className="card-modern">
+          <div className="card-header-modern">
+            <div>
+              <h2 className="card-header-title">
+                <i className="bi bi-trophy me-2" style={{ color: 'var(--warning)' }} />
+                Top Products
+              </h2>
+              <p className="card-header-subtitle">By revenue generated</p>
+            </div>
+          </div>
+          <div className="card-body-modern">
+            {topProducts.length === 0 ? (
+              <div className="empty-state" style={{ padding: '28px 16px' }}>
+                <i className="bi bi-bar-chart empty-state-icon" />
+                <p className="empty-state-title">No revenue data yet</p>
+                <p className="empty-state-text">Sales data will appear here</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {topProducts.slice(0, 5).map((p, idx) => {
                   const percentage = maxRevenue > 0 ? (p.revenue / maxRevenue) * 100 : 0;
+                  const colors = ['brand', 'success', 'warning', 'info', 'purple'];
+                  const colorClass = colors[idx % colors.length];
                   return (
-                    <div key={idx} className="space-y-2">
-                      <div className="flex justify-between items-center text-sm">
-                        <span className="font-medium text-zinc-900 dark:text-zinc-100">{p.name}</span>
-                        <span className="font-mono text-zinc-500 dark:text-zinc-400 font-semibold">
+                    <div key={idx}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{
+                            width: '20px', height: '20px', borderRadius: '50%',
+                            background: 'var(--brand-light)', color: 'var(--brand)',
+                            fontSize: '10px', fontWeight: '700',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            flexShrink: 0,
+                          }}>
+                            {idx + 1}
+                          </span>
+                          <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>
+                            {p.name}
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '12.5px', fontWeight: '700', color: 'var(--text-secondary)', fontFamily: 'Roboto Mono, monospace' }}>
                           ₹{p.revenue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       </div>
-                      <div className="w-full bg-zinc-100 dark:bg-zinc-800 h-2 rounded-full overflow-hidden">
+                      <div className="progress-bar-wrap">
                         <div
-                          className="bg-emerald-500 h-full rounded-full transition-all duration-500"
+                          className={`progress-bar-fill ${colorClass}`}
                           style={{ width: `${percentage}%` }}
                         />
                       </div>
                     </div>
                   );
-                })
-              )}
-            </div>
+                })}
+              </div>
+            )}
           </div>
         </div>
 
         {/* Recent Transactions Card */}
-        <div className="bg-white dark:bg-[#121214] border border-zinc-200 dark:border-[#1f1f23] rounded-xl shadow-sm p-6 text-left flex flex-col justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 font-sans">Recent Transactions</h2>
-            <p className="text-xs text-zinc-400 dark:text-zinc-500 font-mono lowercase mb-6">last 3 sales</p>
-
-            <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {salesHistory.length === 0 ? (
-                <div className="text-xs text-zinc-400 dark:text-zinc-500 font-mono italic py-4">No recent sales recorded.</div>
-              ) : (
-                salesHistory.slice(0, 3).map((sale, idx) => (
-                  <div key={sale.id || idx} className="py-3 flex justify-between items-center first:pt-0 last:pb-0">
-                    <div className="space-y-1">
-                      <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 block">{sale.product_name || "Catalog Product Asset"}</span>
-                      <span className="text-xs text-zinc-400 dark:text-zinc-500 font-mono block">
-                        {formatSaleTimestamp(sale.sold_at)}{sale.buyer_name ? ` · ${sale.buyer_name}` : ''}
-                      </span>
-                    </div>
-                    <span className="font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400">
-                      +₹{parseFloat(sale.total_revenue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                ))
-              )}
+        <div className="card-modern">
+          <div className="card-header-modern">
+            <div>
+              <h2 className="card-header-title">
+                <i className="bi bi-clock-history me-2" style={{ color: 'var(--brand)' }} />
+                Recent Transactions
+              </h2>
+              <p className="card-header-subtitle">Latest 5 sales</p>
             </div>
+          </div>
+          <div style={{ overflow: 'hidden' }}>
+            {salesHistory.length === 0 ? (
+              <div className="empty-state" style={{ padding: '28px 16px' }}>
+                <i className="bi bi-receipt empty-state-icon" />
+                <p className="empty-state-title">No transactions yet</p>
+                <p className="empty-state-text">Completed sales will appear here</p>
+              </div>
+            ) : (
+              salesHistory.slice(0, 5).map((sale, idx) => (
+                <div key={sale.id || idx} className="list-row">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      width: '36px', height: '36px', borderRadius: '10px',
+                      background: 'var(--success-light)', color: 'var(--success)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      flexShrink: 0, fontSize: '15px',
+                    }}>
+                      <i className="bi bi-bag-check" />
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: '13.5px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '2px' }}>
+                        {sale.product_name || "Catalog Product"}
+                      </div>
+                      <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                        {formatSaleTimestamp(sale.sold_at)}
+                        {sale.buyer_name ? ` · ${sale.buyer_name}` : ''}
+                      </div>
+                    </div>
+                  </div>
+                  <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--success)', fontFamily: 'Roboto Mono, monospace', flexShrink: 0 }}>
+                    +₹{parseFloat(sale.total_revenue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
 
-      {/* 📊 BOTTOM INVENTORY SNAPSHOT CARD
-      <div className="bg-white dark:bg-[#121214] border border-zinc-200 dark:border-[#1f1f23] rounded-xl shadow-sm p-6 text-left">
-        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 font-sans">Inventory Snapshot</h2>
-        <p className="text-xs text-zinc-400 dark:text-zinc-500 font-mono lowercase mb-6">current stock levels</p>
-        
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+      {/* ── INVENTORY QUICK SNAPSHOT ── */}
+      {/* <div className="card-modern">
+        <div className="card-header-modern">
+          <div>
+            <h2 className="card-header-title">
+              <i className="bi bi-boxes me-2" style={{ color: 'var(--brand)' }} />
+              Inventory Snapshot
+            </h2>
+            <p className="card-header-subtitle">Current stock levels — {activeSKUs} SKUs</p>
+          </div>
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table className="table-modern">
             <thead>
-              <tr className="border-b border-zinc-100 dark:border-zinc-800">
-                <th className="pb-3 text-xs font-mono font-bold tracking-wider text-zinc-400 uppercase">Product</th>
-                <th className="pb-3 text-xs font-mono font-bold tracking-wider text-zinc-400 uppercase">Stock</th>
-                <th className="pb-3 text-xs font-mono font-bold tracking-wider text-zinc-400 uppercase">Total Kg</th>
-                <th className="pb-3 text-xs font-mono font-bold tracking-wider text-zinc-400 uppercase">Buy Price</th>
-                <th className="pb-3 text-xs font-mono font-bold tracking-wider text-zinc-400 uppercase">Sell Price</th>
-                <th className="pb-3 text-xs font-mono font-bold tracking-wider text-zinc-400 uppercase">Status</th>
+              <tr>
+                <th>Product</th>
+                <th>Stock</th>
+                <th>Total Weight</th>
+                <th>Buy Price</th>
+                <th>Sell Price</th>
+                <th>Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+            <tbody>
               {products.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="py-8 text-center text-xs text-zinc-400 dark:text-zinc-500 font-mono italic">
-                    No products cataloged in inventory.
+                  <td colSpan="6" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>
+                    <i className="bi bi-inbox" style={{ fontSize: '24px', display: 'block', marginBottom: '8px', opacity: 0.4 }} />
+                    No products in inventory
                   </td>
                 </tr>
               ) : (
                 products.map(p => (
-                  <tr key={p.id} className="hover:bg-zinc-50/40 dark:hover:bg-white/5 transition-colors">
-                    <td className="py-4">
-                      <div className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">{p.name}</div>
-                      <div className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono">{p.supplier_name || 'No Supplier'}</div>
+                  <tr key={p.id}>
+                    <td>
+                      <div className="td-primary">{p.name}</div>
+                      <div className="td-sub">{p.supplier_name || 'No supplier'}</div>
                     </td>
-                    <td className="py-4 font-mono text-zinc-600 dark:text-zinc-300 text-sm">
-                      {parseFloat(p.quantity || 0).toFixed(2)} bags
+                    <td>
+                      <span style={{ fontWeight: '600', color: 'var(--text-primary)', fontFamily: 'Roboto Mono, monospace' }}>
+                        {parseFloat(p.quantity || 0).toFixed(2)}
+                      </span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: '4px' }}>
+                        {p.default_unit || 'Bags'}
+                      </span>
                     </td>
-                    <td className="py-4 font-mono text-zinc-600 dark:text-zinc-300 text-sm">
+                    <td style={{ fontFamily: 'Roboto Mono, monospace', fontSize: '12.5px' }}>
                       {(parseFloat(p.quantity || 0) * parseFloat(p.kg_per_unit || 1)).toFixed(2)} Kg
                     </td>
-                    <td className="py-4 font-mono text-zinc-600 dark:text-zinc-300 text-sm">
+                    <td style={{ fontFamily: 'Roboto Mono, monospace', fontSize: '12.5px' }}>
                       {formatCurrency(p.buying_price)}
                     </td>
-                    <td className="py-4 font-mono text-zinc-600 dark:text-zinc-300 text-sm">
+                    <td style={{ fontFamily: 'Roboto Mono, monospace', fontWeight: '600', color: 'var(--text-primary)', fontSize: '12.5px' }}>
                       {formatCurrency(p.price)}
                     </td>
-                    <td className="py-4">
+                    <td>
                       {parseFloat(p.quantity || 0) > 0 ? (
-                        <span className="px-2.5 py-1 text-xs font-mono font-medium rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400">
-                          In Stock
+                        <span className="badge-modern success">
+                          <i className="bi bi-circle-fill" style={{ fontSize: '6px' }} /> In Stock
                         </span>
                       ) : (
-                        <span className="px-2.5 py-1 text-xs font-mono font-medium rounded-full bg-red-50 text-red-600 dark:bg-red-950/20 dark:text-red-400">
-                          Out of Stock
+                        <span className="badge-modern danger">
+                          <i className="bi bi-circle-fill" style={{ fontSize: '6px' }} /> Out of Stock
                         </span>
                       )}
                     </td>
@@ -453,7 +506,8 @@ export default function TraderDashboard({
             </tbody>
           </table>
         </div>
-      </div>*/}
+      </div> */}
+
     </div>
   );
 }

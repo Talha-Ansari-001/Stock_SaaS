@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 // Product Unit Configuration Helper according to specific material matrix
 const getProductUnitConfig = (product = {}) => {
@@ -250,7 +250,7 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
       let data;
       try {
         data = await res.json();
-      } catch (e) {
+      } catch {
         data = null;
       }
 
@@ -288,172 +288,245 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
     return `${qty.toFixed(2)} ${unit} in stock`;
   };
 
+  const paymentMethods = [
+    { id: 'Cash', label: 'Cash', icon: 'bi-cash-coin' },
+    { id: 'Online', label: 'Online', icon: 'bi-phone' },
+    { id: 'Credit / Unpaid', label: 'Credit', icon: 'bi-credit-card-2-front', danger: true },
+  ];
+
   return (
-    <div className="space-y-10 animate-fade-in">
-      <header className="space-y-1 text-left max-w-4xl mx-auto">
-        <h1 className="text-2xl font-semibold tracking-tight text-text-primary font-sans">
-          Point of Sale - Multi-Item Cart
-        </h1>
-        <p className="text-sm tracking-tight text-text-muted font-mono lowercase">
-          transaction / checkout
-        </p>
-      </header>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', animation: 'fadeIn 0.4s ease both' }}>
 
-      <div className="max-w-4xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
-        
-        {/* LEFT COLUMN: Controls */}
-        <div className="space-y-6">
-          {/* Customer Details Form */}
-          <div className="bg-panel border border-border-subtle rounded-xl p-6 space-y-4 shadow-xs">
-            <h2 className="text-sm font-semibold tracking-tight text-text-primary uppercase mb-4 border-b border-border-subtle pb-2">1. Buyer Details</h2>
-            <div className="grid grid-cols-2 gap-4 text-left">
-              <div className="space-y-1.5">
-                <label className="text-xs tracking-tight text-text-muted font-sans block">Buyer Name</label>
-                <input
-                  type="text"
-                  placeholder="Optional profile label"
-                  value={buyerName}
-                  onChange={(e) => setBuyerName(e.target.value)}
-                  className="w-full bg-surface border border-border-subtle focus:border-zinc-500 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs tracking-tight text-text-muted font-sans block">Contact Number</label>
-                <input
-                  type="text"
-                  placeholder="Optional contact"
-                  value={contactNumber}
-                  onChange={(e) => setContactNumber(e.target.value)}
-                  className="w-full bg-surface border border-border-subtle focus:border-zinc-500 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
-                />
+      {/* Page Header */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Sales Terminal</h1>
+          <p className="page-subtitle">Point of sale — multi-item cart checkout</p>
+        </div>
+        <div className="page-actions">
+          {cart.length > 0 && (
+            <span className="badge-modern brand" style={{ fontSize: '13px', padding: '6px 14px' }}>
+              <i className="bi bi-cart3 me-1" /> {cart.length} item{cart.length !== 1 ? 's' : ''} in cart
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', alignItems: 'start' }}>
+
+        {/* ── LEFT: CUSTOMER + ADD ITEM ── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+          {/* Customer Details */}
+          <div className="card-modern">
+            <div className="card-header-modern">
+              <div>
+                <h2 className="card-header-title">
+                  <i className="bi bi-person-lines-fill me-2" style={{ color: 'var(--brand)' }} />
+                  1. Buyer Details
+                </h2>
               </div>
             </div>
-          <div className="space-y-1.5 text-left pt-4">
-              <label className="text-xs tracking-tight text-text-muted font-sans block">Transportation / Delivery Charge (₹)</label>
-              <input
-                type="number"
-                min="0"
-                placeholder="0.00"
-                value={transportationFee}
-                onChange={(e) => setTransportationFee(Math.max(0, parseFloat(e.target.value) || 0))}
-                className="w-full bg-surface border border-border-subtle focus:border-zinc-500 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
-              />
-            </div>
-          </div>
-
-          {/* Add Item Form */}
-          <form onSubmit={handleAddToCart} className="bg-panel border border-border-subtle rounded-xl p-6 space-y-4 shadow-xs relative">
-            <h2 className="text-sm font-semibold tracking-tight text-text-primary uppercase mb-4 border-b border-border-subtle pb-2">2. Add Item</h2>
-            <div className="space-y-5">
-              <div className="space-y-1.5 text-left">
-                <label className="text-xs tracking-tight text-text-muted font-sans block">Product</label>
-                <select
-                  value={selectedProductId}
-                  onChange={(e) => handleProductSelect(e.target.value)}
-                  className="w-full bg-surface border border-border-subtle focus:border-zinc-500 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono outline-none cursor-pointer"
-                >
-                  <option value="" disabled>Select product item...</option>
-                  {!isLoaded ? (
-                    <option disabled>Loading data...</option>
-                  ) : (
-                    (products || []).map((p) => {
-                      if (!p || !p.id) return null;
-                      return (
-                        <option key={p.id} value={p.id}>
-                          {p.name || 'Unnamed Item'} — ({getStockDisplay(p)})
-                        </option>
-                      );
-                    })
-                  )}
-                </select>
+            <div className="card-body-modern">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div className="form-group">
+                  <label className="form-label-modern">Buyer Name</label>
+                  <input
+                    type="text"
+                    placeholder="Optional name"
+                    value={buyerName}
+                    onChange={(e) => setBuyerName(e.target.value)}
+                    className="form-control-modern"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label-modern">Contact Number</label>
+                  <input
+                    type="text"
+                    placeholder="Optional contact"
+                    value={contactNumber}
+                    onChange={(e) => setContactNumber(e.target.value)}
+                    className="form-control-modern"
+                  />
+                </div>
               </div>
-
-              <div className="space-y-1.5 text-left">
-                <label className="text-xs tracking-tight text-text-muted font-sans block">Quantity</label>
-                <div className="flex gap-2">
+              <div className="form-group" style={{ marginTop: '12px' }}>
+                <label className="form-label-modern">Transport / Delivery Charge (₹)</label>
+                <div style={{ position: 'relative' }}>
+                  <span style={{
+                    position: 'absolute', left: '12px', top: '50%',
+                    transform: 'translateY(-50%)', color: 'var(--text-muted)',
+                    fontSize: '14px', pointerEvents: 'none', fontWeight: '600'
+                  }}>₹</span>
                   <input
                     type="number"
-                    placeholder="e.g. 0.5, 1, 10"
                     min="0"
-                    step="any"
-                    value={quantity}
-                    onChange={(e) => setQuantity(e.target.value)}
-                    className="flex-1 bg-surface border border-border-subtle focus:border-zinc-500 rounded-lg transition-all px-4 py-3 text-sm text-text-primary font-mono placeholder:text-text-muted outline-none"
+                    placeholder="0.00"
+                    value={transportationFee}
+                    onChange={(e) => setTransportationFee(Math.max(0, parseFloat(e.target.value) || 0))}
+                    className="form-control-modern"
+                    style={{ paddingLeft: '28px' }}
                   />
-                  <select
-                    value={quantityUnit}
-                    onChange={(e) => setQuantityUnit(e.target.value)}
-                    className="w-32 bg-surface border border-border-subtle focus:border-zinc-500 rounded-lg transition-all px-3 py-3 text-sm text-text-primary font-mono outline-none cursor-pointer"
-                  >
-                    {currentUnitConfig.allowedUnits.map(unit => (
-                      <option key={unit} value={unit}>{unit}</option>
-                    ))}
-                  </select>
                 </div>
               </div>
             </div>
-            
-            <button
-              type="submit"
-              className="w-full bg-zinc-200 text-zinc-900 hover:bg-zinc-300 font-medium text-sm tracking-tight rounded-lg p-3 transition-all duration-200 cursor-pointer mt-2"
-            >
-              + Add to Cart
-            </button>
-          </form>
+          </div>
+
+          {/* Add Item */}
+          <div className="card-modern">
+            <div className="card-header-modern">
+              <div>
+                <h2 className="card-header-title">
+                  <i className="bi bi-bag-plus me-2" style={{ color: 'var(--brand)' }} />
+                  2. Add Item to Cart
+                </h2>
+              </div>
+            </div>
+            <div className="card-body-modern">
+              <form onSubmit={handleAddToCart} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                
+                <div className="form-group">
+                  <label className="form-label-modern">Select Product</label>
+                  <select
+                    value={selectedProductId}
+                    onChange={(e) => handleProductSelect(e.target.value)}
+                    className="form-control-modern form-select-modern"
+                  >
+                    <option value="" disabled>Choose a product...</option>
+                    {!isLoaded ? (
+                      <option disabled>Loading inventory...</option>
+                    ) : (
+                      (products || []).map((p) => {
+                        if (!p || !p.id) return null;
+                        return (
+                          <option key={p.id} value={p.id}>
+                            {p.name || 'Unnamed Item'} — ({getStockDisplay(p)})
+                          </option>
+                        );
+                      })
+                    )}
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label-modern">Quantity</label>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input
+                      type="number"
+                      placeholder="e.g. 0.5, 1, 10"
+                      min="0"
+                      step="any"
+                      value={quantity}
+                      onChange={(e) => setQuantity(e.target.value)}
+                      className="form-control-modern"
+                      style={{ flex: 1 }}
+                    />
+                    <select
+                      value={quantityUnit}
+                      onChange={(e) => setQuantityUnit(e.target.value)}
+                      className="form-control-modern form-select-modern"
+                      style={{ width: '100px' }}
+                    >
+                      {currentUnitConfig.allowedUnits.map(unit => (
+                        <option key={unit} value={unit}>{unit}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {feedback && feedback.type === 'error' && !isSubmitting && (
+                  <div className="alert-modern danger">
+                    <i className="bi bi-exclamation-circle-fill" />
+                    <span>{feedback.message}</span>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  className="btn-os outline full"
+                  style={{ borderColor: 'var(--brand)', color: 'var(--brand)' }}
+                >
+                  <i className="bi bi-plus-lg" /> Add to Cart
+                </button>
+              </form>
+            </div>
+          </div>
         </div>
 
-        {/* RIGHT COLUMN: Cart Summary */}
-        <div className="bg-panel border border-border-subtle rounded-xl p-6 shadow-xs flex flex-col h-full">
-          <h2 className="text-sm font-semibold tracking-tight text-text-primary uppercase mb-4 border-b border-border-subtle pb-2">
-            3. Cart Summary ({cart.length} items)
-          </h2>
-          
-          <div className="flex-1 overflow-y-auto mb-4 min-h-[200px]">
+        {/* ── RIGHT: CART + CHECKOUT ── */}
+        <div className="card-modern" style={{ display: 'flex', flexDirection: 'column' }}>
+          <div className="card-header-modern">
+            <div>
+              <h2 className="card-header-title">
+                <i className="bi bi-cart3 me-2" style={{ color: 'var(--brand)' }} />
+                3. Cart Summary
+              </h2>
+              <p className="card-header-subtitle">{cart.length} item{cart.length !== 1 ? 's' : ''}</p>
+            </div>
+          </div>
+
+          {/* Cart Items */}
+          <div style={{ flex: 1, minHeight: '200px', overflowY: 'auto' }} className="custom-scrollbar">
             {cart.length === 0 ? (
-              <div className="flex h-full items-center justify-center text-text-muted text-sm font-mono border-2 border-dashed border-border-subtle rounded-lg">
-                Cart is empty
+              <div className="empty-state" style={{ padding: '32px' }}>
+                <i className="bi bi-cart-x empty-state-icon" />
+                <p className="empty-state-title">Cart is empty</p>
+                <p className="empty-state-text">Add items from the product list</p>
               </div>
             ) : (
-              <table className="w-full text-left text-sm font-mono border-collapse">
+              <table className="table-modern">
                 <thead>
-                  <tr className="border-b border-border-subtle text-text-muted">
-                    <th className="pb-2 font-medium">Item</th>
-                    <th className="pb-2 font-medium text-right">Qty</th>
-                    <th className="pb-2 font-medium text-right">Price</th>
-                    <th className="pb-2 font-medium text-right">Subtotal</th>
-                    <th className="pb-2 text-right"></th>
+                  <tr>
+                    <th>Item</th>
+                    <th style={{ textAlign: 'right' }}>Qty</th>
+                    <th style={{ textAlign: 'right' }}>Price/Unit</th>
+                    <th style={{ textAlign: 'right' }}>Subtotal</th>
+                    <th style={{ textAlign: 'right' }}></th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border-subtle/50">
+                <tbody>
                   {cart.map((item, idx) => (
-                    <tr key={idx} className="group">
-                      <td className="py-3 text-text-primary">{item.name}</td>
-                      <td className="py-3 text-right">
-                        <span className="bg-surface px-2 py-1 rounded text-xs border border-border-subtle">
+                    <tr key={idx}>
+                      <td>
+                        <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>{item.name}</span>
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <span className="badge-modern neutral" style={{ fontSize: '11px' }}>
                           {item.displayQuantity} {item.unit}
                         </span>
                       </td>
-                      <td className="py-3 text-right">
-                        <div className="flex items-center justify-end gap-0.5">
-                          <span className="text-text-muted text-xs font-mono">₹</span>
+                      <td style={{ textAlign: 'right' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '3px' }}>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>₹</span>
                           <input
                             type="number"
                             step="any"
                             min="0"
                             value={item.unit_price}
                             onChange={(e) => handlePriceChange(idx, e.target.value)}
-                            className="w-20 bg-surface border border-border-subtle focus:border-zinc-500 rounded px-2 py-1 text-xs text-right text-text-primary font-mono outline-none"
+                            style={{
+                              width: '72px', background: 'var(--bg-surface)',
+                              border: '1.5px solid var(--border)', borderRadius: '6px',
+                              padding: '4px 6px', fontSize: '12px', textAlign: 'right',
+                              color: 'var(--text-primary)', fontFamily: 'Roboto Mono, monospace',
+                              outline: 'none', fontWeight: '600',
+                            }}
+                            onFocus={e => { e.target.style.borderColor = 'var(--brand)'; e.target.style.background = '#fff'; }}
+                            onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.background = 'var(--bg-surface)'; }}
                           />
                         </div>
                       </td>
-                      <td className="py-3 text-right font-medium">₹{(typeof item.subtotal === 'number' ? item.subtotal : 0).toFixed(2)}</td>
-                      <td className="py-3 text-right">
-                        <button 
+                      <td style={{ textAlign: 'right', fontFamily: 'Roboto Mono, monospace', fontWeight: '700', color: 'var(--text-primary)', fontSize: '12.5px' }}>
+                        ₹{(typeof item.subtotal === 'number' ? item.subtotal : 0).toFixed(2)}
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <button
                           onClick={() => handleRemoveFromCart(idx)}
-                          className="text-red-500 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity p-1 cursor-pointer"
-                          title="Remove item"
+                          className="btn-os ghost sm"
+                          style={{ color: 'var(--danger)', padding: '4px 6px', opacity: 0.7 }}
+                          title="Remove"
                         >
-                          ✕
+                          <i className="bi bi-x-lg" style={{ fontSize: '11px' }} />
                         </button>
                       </td>
                     </tr>
@@ -463,128 +536,163 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
             )}
           </div>
 
-          <div className="border-t border-border-subtle pt-4 space-y-4 mt-auto">
-            {transportationFee > 0 && (
-              <div className="flex justify-between items-center text-sm font-mono text-text-secondary pb-2 border-b border-border-subtle/50">
-                <span>Transportation Charge:</span>
-                <span>+ ₹{transportationFee.toFixed(2)}</span>
+          {/* Order Summary + Checkout */}
+          <div style={{
+            borderTop: '1px solid var(--border)',
+            padding: '20px',
+            display: 'flex', flexDirection: 'column', gap: '16px',
+          }}>
+            {/* Totals */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                <span>Subtotal</span>
+                <span style={{ fontFamily: 'Roboto Mono, monospace', fontWeight: '600' }}>₹{baseTotal.toFixed(2)}</span>
               </div>
-            )}
-            <div className="flex justify-between items-center text-lg">
-              <span className="font-semibold text-text-primary font-sans">Grand Total:</span>
-              <span className="font-mono font-bold text-emerald-500">
-                ₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </span>
-            </div>
-
-            {/* ── Payment Method & Credit Controls (Section 3) ── */}
-            <div className="border border-border-subtle rounded-xl overflow-hidden">
-              <div className="bg-surface px-4 py-2.5 border-b border-border-subtle">
-                <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-muted">Payment Method</p>
-              </div>
-              <div className="p-3">
-                <div className="grid grid-cols-3 gap-2">
-                  {['Cash', 'Online', 'Credit / Unpaid'].map(method => {
-                    const isSelected = paymentMethod === method;
-                    const isCreditOpt = method === 'Credit / Unpaid';
-                    return (
-                      <button
-                        key={method}
-                        type="button"
-                        onClick={() => {
-                          setPaymentMethod(method);
-                          if (method !== 'Credit / Unpaid') setAdvancePayment('');
-                        }}
-                        className={`py-2.5 px-1 text-xs font-mono tracking-tight rounded-lg transition-all cursor-pointer border ${
-                          isSelected
-                            ? isCreditOpt
-                              ? 'bg-red-500 text-white border-red-500 shadow-sm font-bold'
-                              : 'bg-text-primary text-panel border-text-primary shadow-sm font-semibold'
-                            : isCreditOpt
-                              ? 'bg-red-500/8 text-red-500 border-red-200 dark:border-red-900/40 font-medium hover:bg-red-500/15'
-                              : 'text-text-muted border-border-subtle hover:text-text-primary hover:bg-surface-hover'
-                        }`}
-                      >
-                        {method === 'Cash' ? '💵 Cash' : method === 'Online' ? '📲 Online' : '📋 Credit'}
-                      </button>
-                    );
-                  })}
+              {transportFee > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                  <span>Transport Charge</span>
+                  <span style={{ fontFamily: 'Roboto Mono, monospace', fontWeight: '600' }}>+₹{transportFee.toFixed(2)}</span>
                 </div>
-
-                {/* Credit / Unpaid: Advance Payment Input */}
-                {paymentMethod === 'Credit / Unpaid' && (
-                  <div className="mt-4 space-y-3 animate-fade-in">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-text-muted font-sans block">Initial / Advance Paid Amount (₹)</label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted font-mono text-sm">₹</span>
-                        <input
-                          type="number"
-                          step="any"
-                          min="0"
-                          max={grandTotal}
-                          placeholder="0.00"
-                          value={advancePayment}
-                          onChange={handleAdvanceChange}
-                          className={`w-full pl-8 pr-4 py-3 bg-surface border rounded-xl text-sm font-mono text-text-primary placeholder:text-text-muted outline-none transition-all ${
-                            advanceOverLimit
-                              ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-400/20'
-                              : 'border-border-subtle focus:border-zinc-500'
-                          }`}
-                        />
-                      </div>
-                      {advanceOverLimit && (
-                        <p className="text-[11px] font-mono text-red-500 flex items-center gap-1">
-                          ⚠ Advance amount cannot exceed total bill (₹{grandTotal.toFixed(2)})
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Live Paid / Due Breakdown */}
-                    {(() => {
-                      const adv = Math.min(parseFloat(advancePayment) || 0, grandTotal);
-                      const due = Math.max(0, grandTotal - adv);
-                      const status = due === 0 ? 'Paid' : adv > 0 ? 'Partial' : 'Unpaid';
-                      const statusColor = due === 0 ? 'text-emerald-500' : adv > 0 ? 'text-amber-500' : 'text-red-500';
-                      return (
-                        <div className="bg-surface border border-border-subtle rounded-xl p-3 space-y-2">
-                          <div className="flex justify-between items-center text-xs font-mono">
-                            <span className="text-text-muted">Paid Amount:</span>
-                            <span className="text-emerald-500 font-bold">₹{adv.toFixed(2)}</span>
-                          </div>
-                          <div className="flex justify-between items-center text-xs font-mono">
-                            <span className="text-text-muted">Remaining Due:</span>
-                            <span className={`font-bold ${due > 0 ? 'text-red-500' : 'text-emerald-500'}`}>₹{due.toFixed(2)}</span>
-                          </div>
-                          <div className="flex justify-between items-center text-xs font-mono border-t border-border-subtle/50 pt-2">
-                            <span className="text-text-muted">Status:</span>
-                            <span className={`font-bold uppercase tracking-wide ${statusColor}`}>{status}</span>
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                )}
+              )}
+              <div style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                borderTop: '1.5px solid var(--border)', paddingTop: '10px', marginTop: '2px',
+              }}>
+                <span style={{ fontSize: '15px', fontWeight: '700', color: 'var(--text-primary)' }}>Grand Total</span>
+                <span style={{ fontSize: '20px', fontWeight: '800', color: 'var(--success)', fontFamily: 'Roboto Mono, monospace', letterSpacing: '-0.02em' }}>
+                  ₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
               </div>
             </div>
 
+            {/* Payment Method */}
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                Payment Method
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
+                {paymentMethods.map(method => {
+                  const isSelected = paymentMethod === method.id;
+                  const isDanger = method.danger;
+                  return (
+                    <button
+                      key={method.id}
+                      type="button"
+                      onClick={() => {
+                        setPaymentMethod(method.id);
+                        if (method.id !== 'Credit / Unpaid') setAdvancePayment('');
+                      }}
+                      style={{
+                        padding: '8px 6px',
+                        borderRadius: '8px',
+                        border: `1.5px solid ${isSelected ? (isDanger ? 'var(--danger)' : 'var(--brand)') : 'var(--border)'}`,
+                        background: isSelected
+                          ? isDanger ? 'var(--danger)' : 'var(--brand)'
+                          : isDanger ? 'var(--danger-light)' : 'transparent',
+                        color: isSelected ? '#fff' : isDanger ? 'var(--danger)' : 'var(--text-secondary)',
+                        fontSize: '11.5px', fontWeight: '600',
+                        cursor: 'pointer', fontFamily: 'inherit',
+                        transition: 'all 0.2s ease',
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px',
+                      }}
+                    >
+                      <i className={`bi ${method.icon}`} style={{ fontSize: '14px' }} />
+                      {method.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Credit advance input */}
+              {paymentMethod === 'Credit / Unpaid' && (
+                <div style={{ marginTop: '12px', animation: 'fadeIn 0.25s ease both' }}>
+                  <div className="form-group">
+                    <label className="form-label-modern">Advance Paid Amount (₹)</label>
+                    <div style={{ position: 'relative' }}>
+                      <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '14px', fontWeight: '600', pointerEvents: 'none' }}>₹</span>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        max={grandTotal}
+                        placeholder="0.00"
+                        value={advancePayment}
+                        onChange={handleAdvanceChange}
+                        className={`form-control-modern${advanceOverLimit ? ' error' : ''}`}
+                        style={{ paddingLeft: '28px' }}
+                      />
+                    </div>
+                    {advanceOverLimit && (
+                      <p style={{ fontSize: '11.5px', color: 'var(--danger)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <i className="bi bi-exclamation-triangle-fill" />
+                        Cannot exceed ₹{grandTotal.toFixed(2)}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Payment breakdown */}
+                  {(() => {
+                    const adv = Math.min(parseFloat(advancePayment) || 0, grandTotal);
+                    const due = Math.max(0, grandTotal - adv);
+                    const status = due === 0 ? 'Paid' : adv > 0 ? 'Partial' : 'Unpaid';
+                    const statusColor = due === 0 ? 'success' : adv > 0 ? 'warning' : 'danger';
+                    return (
+                      <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: '10px', padding: '12px 14px', marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '7px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Paid Amount:</span>
+                          <span style={{ fontFamily: 'Roboto Mono, monospace', fontWeight: '700', color: 'var(--success)' }}>₹{adv.toFixed(2)}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Remaining Due:</span>
+                          <span style={{ fontFamily: 'Roboto Mono, monospace', fontWeight: '700', color: due > 0 ? 'var(--danger)' : 'var(--success)' }}>₹{due.toFixed(2)}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: '7px', fontSize: '12px' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Status:</span>
+                          <span className={`badge-modern ${statusColor}`}>{status}</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+
+            {/* Feedback */}
             {feedback && (
-              <div className={`p-3 rounded-lg text-xs font-mono tracking-tight text-left border ${feedback.type === 'success' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>
-                {feedback.message}
+              <div className={`alert-modern ${feedback.type === 'success' ? 'success' : 'danger'}`}>
+                <i className={`bi ${feedback.type === 'success' ? 'bi-check-circle-fill' : 'bi-exclamation-circle-fill'}`} />
+                <span>{feedback.message}</span>
               </div>
             )}
 
+            {/* Checkout Button */}
             <button
               onClick={handleCheckout}
               disabled={isSubmitting || cart.length === 0}
-              className="w-full bg-text-primary text-panel font-bold text-sm tracking-tight rounded-lg p-4 transition-all duration-200 hover:opacity-90 active:scale-95 disabled:opacity-50 cursor-pointer shadow-lg"
+              className="btn-os success full lg"
             >
-              {isSubmitting ? 'Processing Checkout...' : 'Confirm Order & Checkout'}
+              {isSubmitting ? (
+                <>
+                  <span style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <i className="bi bi-check-circle" /> Confirm & Checkout
+                </>
+              )}
             </button>
           </div>
         </div>
-
       </div>
+
+      <style>{`
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @media (max-width: 900px) {
+          .sales-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function SalesView({ token, products, isLoaded, refreshInventory }) {
   const [form, setForm] = useState({ 
@@ -83,7 +83,7 @@ export default function SalesView({ token, products, isLoaded, refreshInventory 
         
         if (refreshInventory) await refreshInventory();
       }
-    } catch (err) {
+    } catch {
       setFeedback({ type: 'error', message: 'Network connection failure.' });
     } finally {
       setIsSubmitting(false);

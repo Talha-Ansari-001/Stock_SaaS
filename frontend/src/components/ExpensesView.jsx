@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 export default function ExpensesView({ token, expenses = [], isLoaded = false, refreshExpenses }) {
   const [title, setTitle] = useState('');
@@ -6,6 +6,9 @@ export default function ExpensesView({ token, expenses = [], isLoaded = false, r
   const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Mobile Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   // 🎛️ FILTER STATES
   const [filterCategory, setFilterCategory] = useState('ALL');
@@ -46,7 +49,7 @@ export default function ExpensesView({ token, expenses = [], isLoaded = false, r
       } else {
         alert(data.error || "Failed to commit debit entries.");
       }
-    } catch (err) {
+    } catch {
       alert("Network communication system fault.");
     } finally {
       setIsSubmitting(false);
@@ -71,7 +74,7 @@ export default function ExpensesView({ token, expenses = [], isLoaded = false, r
         const data = await res.json();
         alert(data.error || 'Failed to delete expense entry.');
       }
-    } catch (err) {
+    } catch {
       alert('Network error while deleting expense.');
     }
   };
@@ -124,198 +127,361 @@ export default function ExpensesView({ token, expenses = [], isLoaded = false, r
 
   // Calculate dynamic filtered sum
   const totalFilteredAmount = filteredExpenses.reduce((sum, exp) => sum + parseFloat(exp.amount || 0), 0);
+  const totalAllTime = expenses.reduce((sum, exp) => sum + parseFloat(exp.amount || 0), 0);
+
+  // Category colors
+  const categoryConfig = {
+    'Fuel/Transportation': { color: 'warning', icon: 'bi-fuel-pump', label: 'Fuel & Logistics' },
+    'Labour/Wages':        { color: 'brand',   icon: 'bi-people',    label: 'Labour Wages' },
+    'Chai/Refreshments':   { color: 'success', icon: 'bi-cup-hot',   label: 'Refreshments' },
+    'Office/Miscellaneous':{ color: 'neutral',  icon: 'bi-briefcase', label: 'Miscellaneous' },
+  };
+
+  const getCategoryConfig = (cat) => categoryConfig[cat] || { color: 'neutral', icon: 'bi-tag', label: cat };
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <header className="flex items-center justify-between">
-        <div className="space-y-1 text-left">
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-white font-sans">Expense Terminal</h1>
-          <p className="text-sm tracking-tight text-zinc-500 dark:text-zinc-400 font-mono lowercase">logistics / workspace_outflows</p>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', animation: 'fadeIn 0.4s ease both' }}>
+
+      {/* Page Header */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Expense Terminal</h1>
+          <p className="page-subtitle">Track and manage business outflows</p>
         </div>
-      </header>
-
-      {/* 📊 GLOBAL LIVE FILTER CONTROL DOCK */}
-      <div className="bg-white dark:bg-[#121214] border border-zinc-200 dark:border-[#1f1f23] rounded-xl p-4 shadow-sm flex flex-wrap gap-4 items-end justify-between">
-        <div className="flex flex-wrap gap-4 items-center">
-          {/* Category Dropdown Filter */}
-          <div className="space-y-1 text-left">
-            <label className="text-[10px] font-mono text-zinc-400 uppercase font-semibold block">Filter Category</label>
-            <select
-              value={filterCategory}
-              onChange={(e) => setFilterCategory(e.target.value)}
-              className="bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 p-2 text-xs rounded-lg font-mono text-zinc-900 dark:text-white outline-none cursor-pointer focus:border-zinc-400 dark:focus:border-zinc-700"
-            >
-              <option value="ALL">All Categories</option>
-              <option value="Fuel/Transportation">Fuel & Logistics</option>
-              <option value="Labour/Wages">Manual Labour</option>
-              <option value="Chai/Refreshments">Chai & Refreshments</option>
-              <option value="Office/Miscellaneous">Miscellaneous Outflows</option>
-            </select>
-          </div>
-
-          {/* Timeframe Select Filter */}
-          <div className="space-y-1 text-left">
-            <label className="text-[10px] font-mono text-zinc-400 uppercase font-semibold block">Time Horizon</label>
-            <select
-              value={timeframe}
-              onChange={(e) => setTimeframe(e.target.value)}
-              className="bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 p-2 text-xs rounded-lg font-mono text-zinc-900 dark:text-white outline-none cursor-pointer focus:border-zinc-400 dark:focus:border-zinc-700"
-            >
-              <option value="ALL">All Time History</option>
-              <option value="TODAY">Today</option>
-              <option value="WEEK">This Week</option>
-              <option value="MONTH">This Month</option>
-              <option value="CUSTOM">Custom Date Range</option>
-            </select>
-          </div>
-
-          {/* Inline Custom Date Pickers Matrix */}
-          {timeframe === 'CUSTOM' && (
-            <div className="flex items-center gap-2 animate-fade-in text-left">
-              <div className="space-y-1">
-                <label className="text-[10px] font-mono text-zinc-400 uppercase font-semibold block">From</label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 p-1.5 text-xs rounded-lg font-mono text-zinc-900 dark:text-white outline-none focus:border-zinc-400 dark:focus:border-zinc-700"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-mono text-zinc-400 uppercase font-semibold block">To</label>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 p-1.5 text-xs rounded-lg font-mono text-zinc-900 dark:text-white outline-none focus:border-zinc-400 dark:focus:border-zinc-700"
-                />
-              </div>
+        <div className="page-actions flex items-center gap-4">
+          <div className="text-right hidden sm:block">
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '3px' }}>All-Time Outflow</div>
+            <div style={{ fontSize: '20px', fontWeight: '800', color: 'var(--danger)', fontFamily: 'Roboto Mono, monospace', letterSpacing: '-0.02em' }}>
+              ₹{totalAllTime.toFixed(2)}
             </div>
-          )}
-        </div>
-
-        {/* Aggregate Output Metric Widget */}
-        <div className="bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-100 dark:border-zinc-800 p-2.5 px-4 rounded-xl text-right shrink-0">
-          <span className="text-[10px] font-mono text-zinc-400 uppercase block font-medium">Selected Total Outflow</span>
-          <span className="text-base font-mono font-bold text-red-500 dark:text-red-400">
-            ₹{totalFilteredAmount.toFixed(2)}
-          </span>
+          </div>
+          <button onClick={() => setIsModalOpen(true)} className="md:hidden btn-os danger sm">
+            <i className="bi bi-plus-circle me-1" /> Log Expense
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-        {/* Form Drawer Input Panel */}
-        <div className="bg-white dark:bg-[#121214] border border-zinc-200 dark:border-[#1f1f23] rounded-xl p-5 shadow-sm">
-          <h2 className="text-xs font-mono uppercase tracking-wider text-zinc-400 mb-4 text-left font-semibold">Log New Outflow</h2>
-          <form onSubmit={handleSubmit} className="space-y-4 text-left">
-            <div className="space-y-1.5">
-              <label className="text-xs font-mono text-zinc-500 dark:text-zinc-400 font-medium">Expense Profile</label>
-              <input 
-                type="text" 
-                required
-                placeholder="e.g., Diesel for pickup truck, Chai for loaders" 
-                value={title} 
-                onChange={(e) => setTitle(e.target.value)} 
-                className="w-full bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 p-2.5 text-xs rounded-lg font-mono outline-none text-zinc-900 dark:text-white focus:border-zinc-400 dark:focus:border-zinc-700" 
-              />
-            </div>
+      {/* Filter Bar */}
+      <div className="card-modern">
+        <div className="card-body-modern" style={{ padding: '16px 20px' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'flex-end' }}>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-mono text-zinc-500 dark:text-zinc-400 font-medium">Category Group</label>
-              <select 
-                value={category} 
-                onChange={(e) => setCategory(e.target.value)} 
-                className="w-full bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 p-2.5 text-xs rounded-lg font-mono outline-none text-zinc-900 dark:text-white cursor-pointer focus:border-zinc-400 dark:focus:border-zinc-700"
-              >
-                <option value="Fuel/Transportation">Fuel & Logistics</option>
-                <option value="Labour/Wages">Manual Labour</option>
-                <option value="Chai/Refreshments">Chai & Refreshments</option>
-                <option value="Office/Miscellaneous">Miscellaneous Outflows</option>
-              </select>
-            </div>
+              {/* Category Filter */}
+              <div className="form-group" style={{ minWidth: '160px' }}>
+                <label className="form-label-modern">Filter Category</label>
+                <select
+                  value={filterCategory}
+                  onChange={(e) => setFilterCategory(e.target.value)}
+                  className="form-control-modern form-select-modern"
+                  style={{ height: '38px', fontSize: '12.5px' }}
+                >
+                  <option value="ALL">All Categories</option>
+                  <option value="Fuel/Transportation">Fuel & Logistics</option>
+                  <option value="Labour/Wages">Manual Labour</option>
+                  <option value="Chai/Refreshments">Chai & Refreshments</option>
+                  <option value="Office/Miscellaneous">Miscellaneous Outflows</option>
+                </select>
+              </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-mono text-zinc-500 dark:text-zinc-400 font-medium">Outflow Amount (₹)</label>
-              <input 
-                type="number" 
-                required
-                step="any"
-                min="0.01"
-                placeholder="0.00" 
-                value={amount} 
-                onChange={(e) => setAmount(e.target.value)} 
-                className="w-full bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 p-2.5 text-xs rounded-lg font-mono outline-none text-zinc-900 dark:text-white focus:border-zinc-400 dark:focus:border-zinc-700" 
-              />
-            </div>
+              {/* Timeframe Filter */}
+              <div className="form-group" style={{ minWidth: '150px' }}>
+                <label className="form-label-modern">Time Horizon</label>
+                <select
+                  value={timeframe}
+                  onChange={(e) => setTimeframe(e.target.value)}
+                  className="form-control-modern form-select-modern"
+                  style={{ height: '38px', fontSize: '12.5px' }}
+                >
+                  <option value="ALL">All Time</option>
+                  <option value="TODAY">Today</option>
+                  <option value="WEEK">This Week</option>
+                  <option value="MONTH">This Month</option>
+                  <option value="CUSTOM">Custom Range</option>
+                </select>
+              </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-mono text-zinc-500 dark:text-zinc-400 font-medium">Additional Context (Notes)</label>
-              <textarea 
-                placeholder="Optional situational logs..." 
-                value={notes} 
-                onChange={(e) => setNotes(e.target.value)} 
-                className="w-full bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 p-2.5 text-xs rounded-lg font-mono h-20 outline-none text-zinc-900 dark:text-white resize-none focus:border-zinc-400 dark:focus:border-zinc-700" 
-              />
-            </div>
-
-            <button 
-              type="submit" 
-              disabled={isSubmitting} 
-              className="w-full bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 hover:opacity-90 font-mono text-xs py-2.5 rounded-lg transition-all font-semibold tracking-tight disabled:opacity-40 cursor-pointer"
-            >
-              {isSubmitting ? "Filing Record..." : "Execute Expense Entry"}
-            </button>
-          </form>
-        </div>
-
-        {/* Ledger Activity History Panel */}
-        <div className="lg:col-span-2 bg-white dark:bg-[#121214] border border-zinc-200 dark:border-[#1f1f23] rounded-xl overflow-hidden shadow-sm flex flex-col">
-          <div className="p-4 border-b border-zinc-100 dark:border-zinc-800/60 flex justify-between items-center bg-zinc-50/50 dark:bg-zinc-900/20">
-            <h2 className="text-xs font-mono uppercase tracking-wider text-zinc-400 font-semibold">Workspace Ledger Entries</h2>
-            <span className="text-[10px] font-mono bg-zinc-100 dark:bg-zinc-800 text-zinc-500 px-2 py-0.5 rounded">
-              Showing: {filteredExpenses.length} / {expenses.length}
-            </span>
-          </div>
-
-          <div className="overflow-y-auto max-h-[510px] custom-scrollbar divide-y divide-zinc-100 dark:divide-zinc-800/60">
-            {!isLoaded ? (
-              <div className="p-12 text-center text-zinc-400 text-xs font-mono animate-pulse">Synchronizing active outflows...</div>
-            ) : filteredExpenses.length === 0 ? (
-              <div className="p-12 text-center text-zinc-400 text-xs font-mono">No matching records found for this filter specification.</div>
-            ) : (
-              filteredExpenses.map((exp) => (
-                <div key={exp.id} className="p-4 flex justify-between items-center hover:bg-zinc-50/40 dark:hover:bg-white/5 transition-colors">
-                  <div className="text-left space-y-1 pr-4">
-                    <p className="text-sm font-medium text-zinc-900 dark:text-white tracking-tight leading-none">{exp.title}</p>
-                    <div className="flex gap-2 items-center">
-                      <span className="text-[9px] font-mono px-1.5 py-0.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-500 rounded uppercase font-medium">
-                        {exp.category}
-                      </span>
-                      <span className="text-[10px] font-mono text-zinc-400">
-                        {exp.spent_at ? new Date(exp.spent_at).toLocaleDateString('en-IN', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
-                      </span>
-                    </div>
-                    {exp.notes && <p className="text-xs text-zinc-400 dark:text-zinc-500 font-sans italic mt-1">"{exp.notes}"</p>}
+              {/* Custom Date Pickers */}
+              {timeframe === 'CUSTOM' && (
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end', animation: 'fadeIn 0.25s ease both' }}>
+                  <div className="form-group">
+                    <label className="form-label-modern">From</label>
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="form-control-modern"
+                      style={{ height: '38px', fontSize: '12.5px' }}
+                    />
                   </div>
-                  <div className="flex items-center space-x-2">
-                    <span className="font-mono text-xs font-medium text-red-500 dark:text-red-400 px-2.5 py-1 bg-red-500/10 border border-red-500/20 rounded-md shrink-0">
-                      - ₹{parseFloat(exp.amount).toFixed(2)}
-                    </span>
-                    <button
-                      onClick={() => handleDelete(exp.id)}
-                      className="text-red-600 hover:text-red-800 focus:outline-none"
-                      title="Delete expense"
-                      aria-label="Delete expense"
-                    >
-                      🗑️
-                    </button>
+                  <div className="form-group">
+                    <label className="form-label-modern">To</label>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="form-control-modern"
+                      style={{ height: '38px', fontSize: '12.5px' }}
+                    />
                   </div>
                 </div>
-              ))
+              )}
+            </div>
+
+            {/* Filtered Total Widget */}
+            <div style={{
+              background: 'var(--danger-light)',
+              border: '1px solid rgba(234,84,85,0.2)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '10px 16px',
+              textAlign: 'right',
+            }}>
+              <div style={{ fontSize: '10px', fontWeight: '700', color: 'var(--danger)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '4px' }}>
+                Selected Outflow
+              </div>
+              <div style={{ fontSize: '18px', fontWeight: '800', color: 'var(--danger)', fontFamily: 'Roboto Mono, monospace' }}>
+                ₹{totalFilteredAmount.toFixed(2)}
+              </div>
+              <div style={{ fontSize: '10px', color: 'rgba(234,84,85,0.7)', marginTop: '2px' }}>
+                {filteredExpenses.length} / {expenses.length} entries
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-[300px_1fr] gap-5 items-start">
+
+        {/* ── ADD EXPENSE FORM (Desktop) ── */}
+        <div className="hidden md:block card-modern">
+          <div className="card-header-modern">
+            <div>
+              <h2 className="card-header-title">
+                <i className="bi bi-plus-circle me-2" style={{ color: 'var(--danger)' }} />
+                Log Expense
+              </h2>
+              <p className="card-header-subtitle">Record a new outflow entry</p>
+            </div>
+          </div>
+          <div className="card-body-modern">
+            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+
+              <div className="form-group">
+                <label className="form-label-modern">Expense Title</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g., Diesel for pickup truck"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className="form-control-modern"
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label-modern">Category</label>
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="form-control-modern form-select-modern"
+                >
+                  <option value="Fuel/Transportation">Fuel & Logistics</option>
+                  <option value="Labour/Wages">Manual Labour</option>
+                  <option value="Chai/Refreshments">Chai & Refreshments</option>
+                  <option value="Office/Miscellaneous">Miscellaneous Outflows</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label-modern">Amount (₹)</label>
+                <div style={{ position: 'relative' }}>
+                  <span style={{
+                    position: 'absolute', left: '12px', top: '50%',
+                    transform: 'translateY(-50%)', color: 'var(--text-muted)',
+                    fontSize: '14px', pointerEvents: 'none', fontWeight: '600',
+                  }}>₹</span>
+                  <input
+                    type="number"
+                    required
+                    step="any"
+                    min="0.01"
+                    placeholder="0.00"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    className="form-control-modern"
+                    style={{ paddingLeft: '28px' }}
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label-modern">Notes (Optional)</label>
+                <textarea
+                  placeholder="Additional context or notes..."
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  className="form-control-modern"
+                  style={{ minHeight: '72px', resize: 'vertical' }}
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="btn-os danger full"
+                style={{ marginTop: '4px' }}
+              >
+                {isSubmitting ? (
+                  <>
+                    <span style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+                    Filing...
+                  </>
+                ) : (
+                  <>
+                    <i className="bi bi-plus-lg" /> Log Expense
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+
+        {/* ── EXPENSE LEDGER ── */}
+        <div className="card-modern" style={{ overflow: 'hidden' }}>
+          <div className="card-header-modern">
+            <div>
+              <h2 className="card-header-title">
+                <i className="bi bi-journal-text me-2" style={{ color: 'var(--danger)' }} />
+                Expense Ledger
+              </h2>
+              <p className="card-header-subtitle">Showing {filteredExpenses.length} entries</p>
+            </div>
+          </div>
+
+          <div style={{ maxHeight: '560px', overflowY: 'auto' }} className="custom-scrollbar">
+            {!isLoaded ? (
+              <div className="loading-state">
+                <div className="spinner-modern" />
+                <p className="loading-text">Synchronizing outflows...</p>
+              </div>
+            ) : filteredExpenses.length === 0 ? (
+              <div className="empty-state">
+                <i className="bi bi-journal-x empty-state-icon" />
+                <p className="empty-state-title">No expense records found</p>
+                <p className="empty-state-text">
+                  {expenses.length > 0 ? 'Try adjusting your filter criteria' : 'Log your first expense using the form on the left'}
+                </p>
+              </div>
+            ) : (
+              filteredExpenses.map((exp) => {
+                const config = getCategoryConfig(exp.category);
+                return (
+                  <div key={exp.id} className="list-row">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
+                      <div className={`stat-icon ${config.color}`} style={{ width: 38, height: 38, borderRadius: 10, flexShrink: 0 }}>
+                        <i className={`bi ${config.icon}`} />
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <p style={{ fontSize: '13.5px', fontWeight: '600', color: 'var(--text-primary)', margin: '0 0 3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {exp.title}
+                        </p>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <span className={`badge-modern ${config.color}`} style={{ fontSize: '10px', padding: '2px 8px' }}>
+                            {config.label}
+                          </span>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            {exp.spent_at ? new Date(exp.spent_at).toLocaleDateString('en-IN', { month: 'short', day: '2-digit' }) : ''}
+                          </span>
+                        </div>
+                        {exp.notes && (
+                          <p style={{ fontSize: '11.5px', color: 'var(--text-muted)', margin: '3px 0 0', fontStyle: 'italic' }}>
+                            "{exp.notes}"
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                      <span style={{
+                        fontFamily: 'Roboto Mono, monospace', fontSize: '13px', fontWeight: '700',
+                        color: 'var(--danger)', background: 'var(--danger-light)',
+                        border: '1px solid rgba(234,84,85,0.2)',
+                        padding: '4px 10px', borderRadius: 'var(--radius-sm)',
+                      }}>
+                        −₹{parseFloat(exp.amount).toFixed(2)}
+                      </span>
+                      <button
+                        onClick={() => handleDelete(exp.id)}
+                        className="btn-os ghost sm"
+                        style={{ color: 'var(--danger)', padding: '6px 8px' }}
+                        title="Delete expense"
+                        aria-label="Delete expense"
+                      >
+                        <i className="bi bi-trash3" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
             )}
           </div>
         </div>
       </div>
+
+      {/* ── MOBILE LOG EXPENSE MODAL ── */}
+      {isModalOpen && (
+        <div className="modal-backdrop-modern md:hidden">
+          <div className="modal-card-modern" style={{ maxWidth: '400px', width: '100%' }}>
+            <div className="modal-header-modern" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 className="modal-title-modern text-danger-os">
+                  <i className="bi bi-lightning-charge-fill me-2" />
+                  Log New Expense
+                </h3>
+                <p className="modal-subtitle-modern">Record a new workspace outflow</p>
+              </div>
+              <button onClick={() => setIsModalOpen(false)} className="btn-os ghost sm"><i className="bi bi-x-lg" /></button>
+            </div>
+            <form onSubmit={async (e) => { await handleSubmit(e); setIsModalOpen(false); }} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div className="form-group">
+                <label className="form-label-modern">Expense Title</label>
+                <input type="text" placeholder="e.g. Diesel for Truck" required value={title} onChange={(e) => setTitle(e.target.value)} className="form-control-modern" />
+              </div>
+              <div className="form-group">
+                <label className="form-label-modern">Category</label>
+                <select value={category} onChange={(e) => setCategory(e.target.value)} className="form-control-modern form-select-modern">
+                  <option value="Fuel/Transportation">Fuel & Transportation</option>
+                  <option value="Labour/Wages">Labour & Wages</option>
+                  <option value="Chai/Refreshments">Chai & Refreshments</option>
+                  <option value="Office/Miscellaneous">Office / Miscellaneous</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label-modern">Amount (₹)</label>
+                <div style={{ position: 'relative' }}>
+                  <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}>₹</span>
+                  <input type="number" required min="1" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="form-control-modern" style={{ paddingLeft: '28px', fontSize: '18px', fontWeight: '700', fontFamily: 'Roboto Mono, monospace' }} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label-modern">Additional Notes <span style={{ fontWeight: '400', color: 'var(--text-muted)' }}>(Optional)</span></label>
+                <textarea rows="2" placeholder="Any details..." value={notes} onChange={(e) => setNotes(e.target.value)} className="form-control-modern" style={{ resize: 'none' }} />
+              </div>
+              <button type="submit" disabled={isSubmitting} className="btn-os danger full" style={{ marginTop: '8px' }}>
+                {isSubmitting ? 'Committing...' : <><i className="bi bi-check-circle-fill me-2" /> Log Expense</>}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @media (max-width: 900px) {
+          .expenses-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
     </div>
   );
 }
