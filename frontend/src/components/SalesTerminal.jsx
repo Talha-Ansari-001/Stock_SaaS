@@ -312,10 +312,10 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', alignItems: 'start' }}>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 items-start">
 
         {/* ── LEFT: CUSTOMER + ADD ITEM ── */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div className="col-span-1 lg:col-span-6 flex flex-col gap-4">
 
           {/* Customer Details */}
           <div className="card-modern">
@@ -328,7 +328,7 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
               </div>
             </div>
             <div className="card-body-modern">
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="form-group">
                   <label className="form-label-modern">Buyer Name</label>
                   <input
@@ -454,7 +454,7 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
         </div>
 
         {/* ── RIGHT: CART + CHECKOUT ── */}
-        <div className="card-modern" style={{ display: 'flex', flexDirection: 'column' }}>
+        <div className="col-span-1 lg:col-span-6 card-modern flex flex-col">
           <div className="card-header-modern">
             <div>
               <h2 className="card-header-title">
@@ -570,7 +570,7 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
               <div style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: '8px' }}>
                 Payment Method
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
+              <div className="grid grid-cols-3 gap-2 w-full text-xs">
                 {paymentMethods.map(method => {
                   const isSelected = paymentMethod === method.id;
                   const isDanger = method.danger;
@@ -669,7 +669,7 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
             <button
               onClick={handleCheckout}
               disabled={isSubmitting || cart.length === 0}
-              className="btn-os success full lg"
+              className="btn-os success w-full py-3 text-sm font-semibold"
             >
               {isSubmitting ? (
                 <>
