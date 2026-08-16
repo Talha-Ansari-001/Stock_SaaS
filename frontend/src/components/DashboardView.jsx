@@ -138,21 +138,21 @@ export default function TraderDashboard({
 
   // 1. Total Billed (Net Billed Revenue = total_revenue - amount_refunded)
   const totalBilled = salesHistory.reduce((acc, sale) => {
-    const rev = parseFloat(sale.total_revenue || 0);
-    const ref = parseFloat(sale.amount_refunded || 0);
+    const rev = parseFloat(sale.total_revenue) || 0;
+    const ref = parseFloat(sale.amount_refunded) || 0;
     return acc + Math.max(0, rev - ref);
   }, 0);
 
   // 2. Received (Net amount paid in cash, which is already net of cash refunds in DB)
   const receivedCash = salesHistory.reduce((acc, sale) => {
-    return acc + parseFloat(sale.amount_paid || 0);
+    return acc + (parseFloat(sale.amount_paid) || 0);
   }, 0);
 
   // 3. Dues Pending (Calculated per-sale to ensure accuracy: Max(0, total - paid - refunded))
   const duesPending = salesHistory.reduce((acc, sale) => {
-    const total = parseFloat(sale.total_revenue || 0);
-    const paid = parseFloat(sale.amount_paid || 0);
-    const refunded = parseFloat(sale.amount_refunded || 0);
+    const total = parseFloat(sale.total_revenue) || 0;
+    const paid = parseFloat(sale.amount_paid) || 0;
+    const refunded = parseFloat(sale.amount_refunded) || 0;
     const due = Math.max(0, total - paid - refunded);
     return acc + due;
   }, 0);
@@ -183,22 +183,24 @@ export default function TraderDashboard({
     const saleDate = new Date(sale.sold_at).toDateString();
     const todayDate = new Date().toDateString();
     if (saleDate === todayDate) {
-      const netSaleRev = parseFloat(sale.total_revenue || 0) - parseFloat(sale.amount_refunded || 0);
+      const netSaleRev = (parseFloat(sale.total_revenue) || 0) - (parseFloat(sale.amount_refunded) || 0);
       return acc + Math.max(0, netSaleRev);
     }
     return acc;
   }, 0);
 
   // 6. Volumetric Stock Evaluation (Accurate float aggregation)
-  const totalStockBags = products.reduce((acc, p) => acc + parseFloat(p.quantity !== undefined ? p.quantity : p.stock || 0), 0);
+  const totalStockBags = products.reduce((acc, p) => acc + (parseFloat(p.quantity !== undefined ? p.quantity : p.stock) || 0), 0);
   const activeSKUs = products.length;
 
   // Top Products Analytics (Net Revenue by Product)
   const productRevenueMap = {};
   salesHistory.forEach(sale => {
     const name = sale.product_name || "Unknown Product";
-    const netRev = parseFloat(sale.total_revenue || 0) - parseFloat(sale.amount_refunded || 0);
-    productRevenueMap[name] = (productRevenueMap[name] || 0) + Math.max(0, netRev);
+    const rev = parseFloat(sale.total_revenue) || 0;
+    const ref = parseFloat(sale.amount_refunded) || 0;
+    const netRev = Math.max(0, rev - ref);
+    productRevenueMap[name] = (productRevenueMap[name] || 0) + netRev;
   });
 
   const topProducts = Object.keys(productRevenueMap).map(name => ({

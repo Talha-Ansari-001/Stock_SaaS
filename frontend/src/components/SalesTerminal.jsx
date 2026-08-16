@@ -71,7 +71,7 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
   const [buyerName, setBuyerName] = useState('');
   const [contactNumber, setContactNumber] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('Cash');
-  const [transportationFee, setTransportationFee] = useState(0);
+  const [transportationFee, setTransportationFee] = useState('');
   const [advancePayment, setAdvancePayment] = useState('');
 
   // Current item inputs
@@ -186,7 +186,7 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
   };
 
   const baseTotal = cart.reduce((sum, item) => sum + (typeof item?.subtotal === 'number' ? item.subtotal : 0), 0);
-  const transportFee = transportationFee;
+  const transportFee = parseFloat(transportationFee) || 0;
   const grandTotal = baseTotal + transportFee;
 
   // --- ADVANCE PAYMENT: Clamped change handler ---
@@ -264,7 +264,7 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
         setBuyerName('');
         setContactNumber('');
         setPaymentMethod('Cash');
-        setTransportationFee(0);
+        setTransportationFee('');
         setAdvancePayment('');
         setSelectedProductId('');
         setQuantity('');
@@ -363,7 +363,10 @@ export default function SalesTerminal({ token, products = [], isLoaded, onSaleCo
                     min="0"
                     placeholder="0.00"
                     value={transportationFee}
-                    onChange={(e) => setTransportationFee(Math.max(0, parseFloat(e.target.value) || 0))}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setTransportationFee(val === '' ? '' : Math.max(0, parseFloat(val) || 0));
+                    }}
                     className="form-control-modern"
                     style={{ paddingLeft: '28px' }}
                   />

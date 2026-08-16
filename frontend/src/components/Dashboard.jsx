@@ -82,7 +82,11 @@ export default function TraderDashboard({ token }) {
 
   // Safe calculation matrix with fallback protection numbers
   const totalRevenue = Array.isArray(salesHistory)
-    ? salesHistory.reduce((acc, sale) => acc + parseFloat(sale.total_revenue || 0), 0)
+    ? salesHistory.reduce((acc, sale) => {
+        const rev = parseFloat(sale.total_revenue) || 0;
+        const ref = parseFloat(sale.amount_refunded) || 0;
+        return acc + Math.max(0, rev - ref);
+      }, 0)
     : 0;
 
   // 1. Loading State Screen Interface
