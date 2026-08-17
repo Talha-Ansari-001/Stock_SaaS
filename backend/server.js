@@ -410,8 +410,11 @@ app.get('/api/sales/history', async (req, res) => {
         o.total_amount AS total_revenue,
         o.transportation_fee,
         o.created_at AS sold_at,
-        o.paid_amount AS paid_amount,
+        IFNULL(o.paid_amount, o.total_amount) AS paid_amount,
+        IFNULL(o.paid_amount, o.total_amount) AS amount_paid,
         o.due_amount AS due_amount,
+        MAX(p.name) AS product_name,
+        MAX(p.id) AS product_id,
         SUM(s.quantity_returned) AS quantity_returned,
         SUM(s.amount_refunded) AS amount_refunded,
         JSON_ARRAYAGG(

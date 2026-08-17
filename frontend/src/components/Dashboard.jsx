@@ -222,7 +222,9 @@ export default function TraderDashboard({ token }) {
                 salesHistory.map(s => (
                   <div key={s.id} className="flex justify-between items-center p-3 bg-surface-hover border-l-2 border-emerald-500">
                     <div>
-                      <span className="text-sm font-semibold text-text-primary block">{s.product_name || "Unknown Product"}</span>
+                      <span className="text-sm font-semibold text-text-primary block">
+                        {s.product_name || products.find(p => p.id === s.product_id)?.name || "Uncategorized Product"}
+                      </span>
                       <span className="text-[10px] text-text-muted font-mono">
                         {s.sold_at ? new Date(s.sold_at).toLocaleString() : "Date N/A"}
                       </span>

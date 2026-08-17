@@ -145,15 +145,23 @@ export default function TraderDashboard({
 
   // 2. Received (Net amount paid in cash, which is already net of cash refunds in DB)
   const receivedCash = salesHistory.reduce((acc, sale) => {
-    return acc + (parseFloat(sale.amount_paid) || 0);
+    const rev = parseFloat(sale.total_revenue) || 0;
+    let paid = sale.amount_paid;
+    if (paid === undefined || paid === null || sale.payment_status === 'Paid') {
+      paid = sale.amount_paid ?? rev;
+    }
+    return acc + (parseFloat(paid) || 0);
   }, 0);
 
   // 3. Dues Pending (Calculated per-sale to ensure accuracy: Max(0, total - paid - refunded))
   const duesPending = salesHistory.reduce((acc, sale) => {
     const total = parseFloat(sale.total_revenue) || 0;
-    const paid = parseFloat(sale.amount_paid) || 0;
+    let paid = sale.amount_paid;
+    if (paid === undefined || paid === null || sale.payment_status === 'Paid') {
+      paid = sale.amount_paid ?? total;
+    }
     const refunded = parseFloat(sale.amount_refunded) || 0;
-    const due = Math.max(0, total - paid - refunded);
+    const due = Math.max(0, total - (parseFloat(paid) || 0) - refunded);
     return acc + due;
   }, 0);
 
@@ -196,7 +204,11 @@ export default function TraderDashboard({
   // Top Products Analytics (Net Revenue by Product)
   const productRevenueMap = {};
   salesHistory.forEach(sale => {
-    const name = sale.product_name || "Unknown Product";
+    let name = sale.product_name;
+    if (!name) {
+      const matchedProduct = products.find(p => p.id === sale.product_id);
+      name = matchedProduct?.name || "Uncategorized Product";
+    }
     const rev = parseFloat(sale.total_revenue) || 0;
     const ref = parseFloat(sale.amount_refunded) || 0;
     const netRev = Math.max(0, rev - ref);
@@ -418,7 +430,7 @@ export default function TraderDashboard({
                     </div>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: '13.5px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '2px' }}>
-                        {sale.product_name || "Catalog Product"}
+                        {sale.product_name || products.find(p => p.id === sale.product_id)?.name || "Uncategorized Product"}
                       </div>
                       <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
                         {formatSaleTimestamp(sale.sold_at)}
